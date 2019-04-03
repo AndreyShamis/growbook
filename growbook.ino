@@ -16,7 +16,7 @@
 */
 
 #include <NTPClient.h>
-#include <WiFiUdp.h>
+//#include <WiFiUdp.h>
 #include <Wire.h>
 #include <ESP8266WiFi.h>
 #include <ESP8266Ping.h>
@@ -392,18 +392,17 @@ void start_thermal() {
 
 */
 String build_index() {
-  //"'current_temperature': '" + String(getTemperature(outsideThermometerIndex)) + "'," +
-  //"'inside_temperature': '" + String(getTemperature(getInsideThermometer())) + "'," +
+
   String ret_js = String("") + "load = \n{" +
                   "'boiler_mode': '" + String(loadMode) + "'," +
                   "'load_mode': '" + String(loadMode) + "'," +
                   "'internet_access': '" + String(internet_access) + "'," +
                   "'disbaled_by_watch': '" + String(secure_disabled) + "'," +
                   "'max_temperature': '" + String(MAX_POSSIBLE_TMP) + "'," +
-                  "'current_temperature': '" + String(current_temp[0]) + "'," +
-                  "'current_temperature': '" + String(current_temp[1]) + "'," +
-                  "'current_temperature': '" + String(current_temp[2]) + "'," +
-                  "'current_temperature': '" + String(current_temp[3]) + "'," +
+                  "'current_temperature_0': '" + String(current_temp[0]) + "'," +
+                  "'current_temperature_1': '" + String(current_temp[1]) + "'," +
+                  "'current_temperature_2': '" + String(current_temp[2]) + "'," +
+                  "'current_temperature_3': '" + String(current_temp[3]) + "'," +
                   "'flash_chip_id': '" + String(ESP.getFlashChipId()) + "'," +
                   "'flash_chip_size': '" + String(ESP.getFlashChipSize()) + "'," +
                   "'flash_chip_speed': '" + String(ESP.getFlashChipSpeed()) + "'," +
@@ -675,5 +674,3 @@ void print_all_info() {
   message("CpuFreqMHz: " + String(ESP.getCpuFreqMHz()) + " \tBootMode: " + String(ESP.getBootMode()) + "\tSketchSize: " + String(ESP.getSketchSize()) + "\tFreeSketchSpace: " + String(ESP.getFreeSketchSpace()), INFO);
   //message("getResetReason: " + ESP.getResetReason() + " |getResetInfo: " + ESP.getResetInfo() + " |Address : " + getAddressString(insideThermometer[0]), INFO);
 }
-
-
