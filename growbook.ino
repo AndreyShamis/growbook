@@ -8,7 +8,6 @@
       1. On WiFi disconnect the load will be disabled(KEEP mode only)
       2. Delay between disable to enable- default 60 seconds(KEEP mode only)
       3. In case temperature value is anomalous the load will be disabled
-      4. Watch inside thermometer, the maximum inside temperature is MAX_POSSIBLE_TMP_INSIDE
       5. Check Internet connectivity, if there is no ping to 8.8.8.8, load will be disabled
       6. Add reconnect after X pings failures
       7. Added \_FLAG_FORCE_TMP_CHECK, When true will cause to immediately check, used also when thermometer wire were troubled
@@ -38,14 +37,13 @@
 #define   CHECK_TMP_INSIDE                  0                       // For disable validation of seconds thermometer use 0
 #define   CHECK_INTERNET_CONNECT            0                       // For disable internet connectiviy check use 0
 #define   RECONNECT_AFTER_FAILS             100                     // 20 = ~1 min -> 100 =~ 4min
-#define   MAX_POSSIBLE_TMP                  26                      // MAX possible temp outside
-#define   MAX_POSSIBLE_TMP_INSIDE           36                      // MAX possible temp inside - depends on disctance between SSR to the Thermometer
+#define   MAX_POSSIBLE_TMP                  32                      // MAX possible tmp
 #define   MAX_INCORRECT_TMP                 50                      // Usally when Vcc disconnected the tmp will be 85
 #define   MIN_INCORRECT_TMP                 -1                      // Usally when GND or DATA disconnected the tmp will be -127
 
 // Thermometer and wire settings
 #define   ONE_WIRE_BUS                      D4                      // D4 2
-#define   LOAD_VCC                          D7                      // D7 13
+//#define   LOAD_VCC                          D7                      // D7 13
 #define   TEMPERATURE_PRECISION             12                      // Possible value 9-12
 
 // NTP settings
@@ -58,13 +56,6 @@
 #define   LOOP_DELAY                        50                      // Wait each loop for LOOP_DELAY
 // Unchangeable settings
 #define   INCORRECT_EPOCH                   200000                  // Minimum value for time epoch
-/**
-   Set delay between load disabled to load enabled in seconds
-   When the value is 60, load can be automatically enabled after 1 minutes
-   in case keeped temperature is higher of current temp
-*/
-#define   OFF_ON_DELAY_SEC                  30
-
 #define   NUMBER_OF_SENSORS                 4
 
 /**
@@ -72,6 +63,7 @@
    For example loop_delay=10, counter sec will be 100 , when (counter%100 == 0) happens every second
 */
 #define COUNTER_IN_LOOP_SECOND              (int)(1000/LOOP_DELAY)
+#define CHECK_TMP                           (COUNTER_IN_LOOP_SECOND*3)
 #define NTP_UPDATE_COUNTER                  (COUNTER_IN_LOOP_SECOND*60*3)
 #define CHECK_INTERNET_CONNECTIVITY_CTR     (COUNTER_IN_LOOP_SECOND*120)
 
@@ -102,7 +94,6 @@ enum LogType {
 const char          *ssid                     = WIFI_SSID;
 const char          *password                 = WIFI_PASS;
 int                 counter                   = 0;
-bool                secure_disabled           = false;
 int                 last_disable_epoch        = 0;
 bool                internet_access           = 0;
 unsigned short      internet_access_failures  = 0;
@@ -115,8 +106,6 @@ ESP8266WebServer    server(80);
 DeviceAddress       insideThermometer[NUMBER_OF_SENSORS];       // arrays to hold device address
 WiFiUDP             ntpUDP;
 IPAddress           pingServer (8, 8, 8, 8);    // Ping server
-LoadModeType        loadMode = MANUAL;
-
 float               current_temp[NUMBER_OF_SENSORS];
 /**
     You can specify the time server pool and the offset (in seconds, can be changed later with setTimeOffset()).
@@ -140,7 +129,7 @@ float   getTemperature(const int dev = 0);
 */
 void setup(void) {
   //ADC_MODE(ADC_VCC);
-  pinMode(LOAD_VCC, OUTPUT);
+  //pinMode(LOAD_VCC, OUTPUT);
   if (CHECK_INTERNET_CONNECT) {
     internet_access = 0;
   }
@@ -157,7 +146,7 @@ void setup(void) {
   message("SPIFFS startted.", PASS);
   //message("Compile SPIFFS", INFO);
   //  SPIFFS.format();
-
+  Serial.println(build_index());
   wifi_connect();
   server_start();
   timeClient.begin();
@@ -178,10 +167,11 @@ void setup(void) {
 void loop(void) {
 
   server.handleClient();
-  for (int i = 0; i < sensor.getDeviceCount(); i++) {
-    current_temp[i] = getTemperature(i);
+  if (counter % CHECK_TMP == 0) {
+    for (int i = 0; i < sensor.getDeviceCount(); i++) {
+      current_temp[i] = getTemperature(i);
+    }
   }
-
 
   if (WiFi.status() != WL_CONNECTED) {
     internet_access = 0;
@@ -394,10 +384,7 @@ void start_thermal() {
 String build_index() {
 
   String ret_js = String("") + "load = \n{" +
-                  "'boiler_mode': '" + String(loadMode) + "'," +
-                  "'load_mode': '" + String(loadMode) + "'," +
                   "'internet_access': '" + String(internet_access) + "'," +
-                  "'disbaled_by_watch': '" + String(secure_disabled) + "'," +
                   "'max_temperature': '" + String(MAX_POSSIBLE_TMP) + "'," +
                   "'current_temperature_0': '" + String(current_temp[0]) + "'," +
                   "'current_temperature_1': '" + String(current_temp[1]) + "'," +
