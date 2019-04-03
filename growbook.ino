@@ -319,25 +319,25 @@ void server_start() {
   server.on("/inline", []() {
     server.send(200, "text/plain", "this works as well");
   });
-  server.on("/el", []() {
-    enableLoad();
-    loadMode = MANUAL;
-    handleRoot();
-  });
-  server.on("/dl", []() {
-    disableLoad();
-    loadMode = MANUAL;
-    handleRoot();
-  });
-  server.on("/setDallasIndex", []() {
-    uploadAndSaveOutsideThermometerIndex();
-    handleRoot();
-  });
-  server.on("/keep", []() {
-    last_disable_epoch = 0;
-    saveLoadMode();
-    handleRoot();
-  });
+//  server.on("/el", []() {
+//    enableLoad();
+//    loadMode = MANUAL;
+//    handleRoot();
+//  });
+//  server.on("/dl", []() {
+//    disableLoad();
+//    loadMode = MANUAL;
+//    handleRoot();
+//  });
+//  server.on("/setDallasIndex", []() {
+//    uploadAndSaveOutsideThermometerIndex();
+//    handleRoot();
+//  });
+//  server.on("/keep", []() {
+//    last_disable_epoch = 0;
+//    saveLoadMode();
+//    handleRoot();
+//  });
 
   server.onNotFound(handleNotFound);
   message("Staring HTTP server...", INFO);
@@ -398,13 +398,12 @@ String build_index() {
                   "'boiler_mode': '" + String(loadMode) + "'," +
                   "'load_mode': '" + String(loadMode) + "'," +
                   "'internet_access': '" + String(internet_access) + "'," +
-                  "'load_status': '" + String(heaterStatus) + "'," +
                   "'disbaled_by_watch': '" + String(secure_disabled) + "'," +
                   "'max_temperature': '" + String(MAX_POSSIBLE_TMP) + "'," +
-                  "'max_temperature_inside': '" + String(MAX_POSSIBLE_TMP_INSIDE) + "'," +
-                  "'keep_temperature': '" + String(temperatureKeep) + "'," +
-                  "'current_temperature': '" + String(current_temp) + "'," +
-                  "'inside_temperature': '" + String(current_temp_inside) + "'," +
+                  "'current_temperature': '" + String(current_temp[0]) + "'," +
+                  "'current_temperature': '" + String(current_temp[1]) + "'," +
+                  "'current_temperature': '" + String(current_temp[2]) + "'," +
+                  "'current_temperature': '" + String(current_temp[3]) + "'," +
                   "'flash_chip_id': '" + String(ESP.getFlashChipId()) + "'," +
                   "'flash_chip_size': '" + String(ESP.getFlashChipSize()) + "'," +
                   "'flash_chip_speed': '" + String(ESP.getFlashChipSpeed()) + "'," +
@@ -420,9 +419,6 @@ String build_index() {
                   "'sketch_size': '" + String(ESP.getSketchSize()) + "'," +
                   "'free_sketch_size': '" + String(ESP.getFreeSketchSpace()) + "'," +
                   "'temperature_precision': '" + String(TEMPERATURE_PRECISION) + "'," +
-                  "'dallas_addr': '" + getAddressString(insideThermometer[outsideThermometerIndex]) + "'," +
-                  "'dallas_addrs': '" + get_thermometers_addr() + "'," +
-                  "'outside_therm_index': '" + String(outsideThermometerIndex) + "'," +
                   "'time_str': '" + timeClient.getFormattedTime() + "'," +
                   "'time_epoch': '" + timeClient.getEpochTime() + "'," +
                   "'hostname': '" + WiFi.hostname() + "'" +
@@ -673,7 +669,7 @@ String read_setting(const char* fname) {
 */
 void print_all_info() {
   message("", INFO);
-  message("Heater status: " + String(heaterStatus) + " |HostName: " + WiFi.hostname() + " |Ch: " + String(WiFi.channel()) + " |RSSI: " + WiFi.RSSI() + " |MAC: " + WiFi.macAddress(), INFO);
+  message("HostName: " + WiFi.hostname() + " |Ch: " + String(WiFi.channel()) + " |RSSI: " + WiFi.RSSI() + " |MAC: " + WiFi.macAddress(), INFO);
   message("Flash Chip Id/Size/Speed/Mode: " + String(ESP.getFlashChipId()) + "/" + String(ESP.getFlashChipSize()) + "/" + String(ESP.getFlashChipSpeed()) + "/" + String(ESP.getFlashChipMode()), INFO);
   message("SdkVersion: " + String(ESP.getSdkVersion()) + "\tCoreVersion: " + ESP.getCoreVersion() + "\tBootVersion: " + ESP.getBootVersion(), INFO);
   message("CpuFreqMHz: " + String(ESP.getCpuFreqMHz()) + " \tBootMode: " + String(ESP.getBootMode()) + "\tSketchSize: " + String(ESP.getSketchSize()) + "\tFreeSketchSpace: " + String(ESP.getFreeSketchSpace()), INFO);
