@@ -165,12 +165,15 @@ void setup(void) {
 
 
 void loop(void) {
-
   server.handleClient();
+
   if (counter % CHECK_TMP == 0) {
+    String prinrt_tmp = "TMP is ";
     for (int i = 0; i < sensor.getDeviceCount(); i++) {
       current_temp[i] = getTemperature(i);
+      prinrt_tmp = prinrt_tmp + String(i) + ": " + String(current_temp[i]) + " C, | ";
     }
+    message(prinrt_tmp, INFO);
   }
 
   if (WiFi.status() != WL_CONNECTED) {
