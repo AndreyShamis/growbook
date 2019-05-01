@@ -25,9 +25,15 @@
 #include "FS.h"
 #include <OneWire.h>
 #include <DallasTemperature.h>
+#include "DHTesp.h"
 /**
  ****************************************************************************************************
 */
+
+#define DHTpin 14    //D5 of NodeMCU is GPIO14
+ 
+DHTesp dht;
+
 // WiFi settings
 #define   WIFI_SSID                         "RadiationG"
 #define   WIFI_PASS                         "polkalol"
@@ -146,6 +152,10 @@ void setup(void) {
   message("SPIFFS startted.", PASS);
   //message("Compile SPIFFS", INFO);
   //  SPIFFS.format();
+
+  dht.setup(DHTpin, DHTesp::DHT11); //for DHT11 Connect DHT sensor to GPIO 17
+  //dht.setup(DHTpin, DHTesp::DHT22); //for DHT22 Connect DHT sensor to GPIO 17
+
   Serial.println(build_index());
   wifi_connect();
   server_start();
@@ -163,7 +173,6 @@ void setup(void) {
   ////////////////////////////////////////////////////////////////////////////
 */
 
-
 void loop(void) {
   server.handleClient();
 
@@ -173,7 +182,14 @@ void loop(void) {
       current_temp[i] = getTemperature(i);
       prinrt_tmp = prinrt_tmp + String(i) + ": " + String(current_temp[i]) + " C, | ";
     }
-    message(prinrt_tmp, INFO);
+      int dht_min_period = dht.getMinimumSamplingPeriod();
+      message(prinrt_tmp, INFO);
+      delay(dht_min_period);
+    
+      float humidity = dht.getHumidity();
+      float temperature = dht.getTemperature();
+      float heat_index = dht.computeHeatIndex(temperature, humidity, false);
+      message("DHT Status [" + String(dht.getStatusString()) + "]\tHumidity:" + String(humidity) + "%\tTMP:" + String(temperature) + "/" + String(heat_index) + "C", INFO);
   }
 
   if (WiFi.status() != WL_CONNECTED) {
