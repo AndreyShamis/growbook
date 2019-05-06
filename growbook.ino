@@ -30,7 +30,7 @@
  ****************************************************************************************************
 */
 
-#define DHTpin 14    //D5 of NodeMCU is GPIO14
+
  
 DHTesp dht;
 
@@ -51,6 +51,9 @@ DHTesp dht;
 #define   ONE_WIRE_BUS                      D4                      // D4 2
 //#define   LOAD_VCC                          D7                      // D7 13
 #define   TEMPERATURE_PRECISION             12                      // Possible value 9-12
+
+// DHT Settings
+#define   DHTpin                            D5                      // 14 D5 of NodeMCU is GPIO14
 
 // NTP settings
 #define   NTP_SERVER                        "1.asia.pool.ntp.org"   // Pool of ntp server http://www.pool.ntp.org/zone/asia
