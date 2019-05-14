@@ -26,10 +26,13 @@
 #include <OneWire.h>
 #include <DallasTemperature.h>
 #include "DHTesp.h"
+#include <ESP8266HTTPClient.h>
+
 /**
  ****************************************************************************************************
 */
 
+HTTPClient httpClient;    //Declare object of class HTTPClient
 
  
 DHTesp dht;
@@ -76,6 +79,8 @@ DHTesp dht;
 #define NTP_UPDATE_COUNTER                  (COUNTER_IN_LOOP_SECOND*60*3)
 #define CHECK_INTERNET_CONNECTIVITY_CTR     (COUNTER_IN_LOOP_SECOND*120)
 
+
+#define GROWBOOK_URL                        "http://192.168.1.206:8082/"
 /**
  ****************************************************************************************************
 */
@@ -180,10 +185,12 @@ void loop(void) {
   server.handleClient();
 
   if (counter % CHECK_TMP == 0) {
+    message("Counter:" + String(counter) + " .CHECK_TMP=:" + String(CHECK_TMP), INFO);
     String prinrt_tmp = "TMP is ";
     for (int i = 0; i < sensor.getDeviceCount(); i++) {
       current_temp[i] = getTemperature(i);
       prinrt_tmp = prinrt_tmp + String(i) + ": " + String(current_temp[i]) + " C, | ";
+      postData(String(current_temp[i]), String(getAddressString(insideThermometer[i])), "App%5CEntity%5CEvents%5CEventTemperature");
     }
       int dht_min_period = dht.getMinimumSamplingPeriod();
       message(prinrt_tmp, INFO);
@@ -193,6 +200,7 @@ void loop(void) {
       float temperature = dht.getTemperature();
       float heat_index = dht.computeHeatIndex(temperature, humidity, false);
       message("DHT Status [" + String(dht.getStatusString()) + "]\tHumidity:" + String(humidity) + "%\tTMP:" + String(temperature) + "/" + String(heat_index) + "C", INFO);
+      postData(String(humidity), String("DHT11_-_") + String(ESP.getFlashChipId()) + String("_-_0"), "App%5CEntity%5CEvents%5CEventHumidity");
   }
 
   if (WiFi.status() != WL_CONNECTED) {
@@ -242,6 +250,29 @@ void loop(void) {
     counter = 0;
     //printTemperatureToSerial();
   }
+}
+
+void postData(String value, String sensor, String type)
+{
+  
+   httpClient.begin(String(GROWBOOK_URL) + "event/new?type=App%5CEntity%5CEvents%5CEventTemperature");
+   //httpClient.addHeader("Content-Type", "text/plain");  //Specify content-type header
+   httpClient.addHeader("Content-Type", "application/x-www-form-urlencoded");  //Specify content-type header
+
+   String postData;
+   postData = "event[type]=" + type + "&event[value]=" + String(value) + "&event[sensor_id]=" + String(sensor) + "&event[plant]=" + String("1") + "&event[note]=&";
+   Serial.println(String("postData:") + postData);   //Print HTTP return code
+   int httpCode = httpClient.POST(postData);   //Send the request
+   String payload = httpClient.getString();                  //Get the response payload
+    if ( httpCode == HTTP_CODE_OK) {
+      message("postData Success.", INFO);
+    } else {
+      message(String("httpCode:") + httpCode, CRITICAL);   //Print HTTP return code
+    }
+   
+   Serial.println(String("payload:") + payload);    //Print request response payload
+ 
+   httpClient.end();  //Close connection
 }
 
 /**
