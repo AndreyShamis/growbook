@@ -273,16 +273,20 @@ void postData(String value, String sensor, String type)
 
    String postData;
    postData = "event[type]=" + type + "&event[value]=" + String(value) + "&event[sensor_id]=" + String(sensor) + "&event[plant]=" + String("1") + "&event[note]=&event[plant_id]=" + String(WiFi.hostname());
-   Serial.println(String("postData:") + postData);   //Print HTTP return code
+   message(String("postData:") + postData, DEBUG);   //Print HTTP return code
    int httpCode = httpClient.POST(postData);   //Send the request
    String payload = httpClient.getString();                  //Get the response payload
-    if ( httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_FOUND) {
-      message("postData Success.", INFO);
-    } else {
-      message(String("httpCode:") + httpCode, CRITICAL);   //Print HTTP return code
+    if ( httpCode == HTTP_CODE_OK) {
+      //message("postData Success.", INFO);
+    }
+    else if (httpCode == HTTP_CODE_FOUND){
+      message(String(" + ") + String(httpCode) + payload, DEBUG);    //Print request response payload
+    }
+    else {
+      message(String(" - ") + String(httpCode) + payload, DEBUG);    //Print request response payload
     }
    
-   Serial.println(String("payload:") + payload);    //Print request response payload
+   
  
    httpClient.end();  //Close connection
 }
