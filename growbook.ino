@@ -280,10 +280,10 @@ void postData(String value, String sensor, String type)
       //message("postData Success.", INFO);
     }
     else if (httpCode == HTTP_CODE_FOUND){
-      message(String(" + ") + String(httpCode) + payload, DEBUG);    //Print request response payload
+      message(String(" + ") + String(httpCode) + ' ' + payload, INFO);    //Print request response payload
     }
     else {
-      message(String(" - ") + String(httpCode) + payload, DEBUG);    //Print request response payload
+      message(String(" - ") + String(httpCode) + ' ' + payload, DEBUG);    //Print request response payload
     }
    
    
