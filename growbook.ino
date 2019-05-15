@@ -34,7 +34,7 @@
 
 HTTPClient httpClient;    //Declare object of class HTTPClient
 
- 
+
 DHTesp dht;
 
 // WiFi settings
@@ -193,32 +193,36 @@ void loop(void) {
       float prevTmp = current_temp[i];
       float tmp_1 = 0;
       float tmp_2 = 1;
-      while (tmp_1 != tmp_2) {
-        tmp_1 = getTemperature(i);
-        delay(20);
-        tmp_2 = getTemperature(i);
-        delay(20);
+      current_temp[i] = getTemperature(i);
+      if (prevTmp != current_temp[i]) {
+        while (tmp_1 != tmp_2) {
+          delay(50);
+          tmp_1 = getTemperature(i);
+          delay(50);
+          tmp_2 = getTemperature(i);
+        }
+        current_temp[i] = tmp_1;
       }
-      current_temp[i] = tmp_1;
+
       prinrt_tmp = prinrt_tmp + String(i) + ": " + String(current_temp[i]) + " C, | ";
-      if (prevTmp != current_temp[i]){
-          postData(String(current_temp[i]), String(getAddressString(insideThermometer[i])), "App%5CEntity%5CEvents%5CEventTemperature");
+      if (prevTmp != current_temp[i]) {
+        growBookPostEvent(String(current_temp[i]), String(getAddressString(insideThermometer[i])), "App%5CEntity%5CEvents%5CEventTemperature");
       }
-      
+
     }
-      int dht_min_period = dht.getMinimumSamplingPeriod();
-      message(prinrt_tmp, INFO);
-      delay(dht_min_period);
-    
-      float humidity = dht.getHumidity();
-      float temperature = dht.getTemperature();
-      float heat_index = dht.computeHeatIndex(temperature, humidity, false);
-      message("DHT Status [" + String(dht.getStatusString()) + "]\tHumidity:" + String(humidity) + "%\tTMP:" + String(temperature) + "/" + String(heat_index) + "C", INFO);
-      if (current_humidity != humidity) {
-        
-      }
-      
-      current_humidity = humidity;
+    int dht_min_period = dht.getMinimumSamplingPeriod();
+    message(prinrt_tmp, INFO);
+    delay(dht_min_period);
+
+    float humidity = dht.getHumidity();
+    float temperature = dht.getTemperature();
+    float heat_index = dht.computeHeatIndex(temperature, humidity, false);
+    message("DHT Status [" + String(dht.getStatusString()) + "]\tHumidity:" + String(humidity) + "%\tTMP:" + String(temperature) + "/" + String(heat_index) + "C", INFO);
+    if (current_humidity != humidity) {
+      growBookPostEvent(String(humidity), String("DHT11_-_") + String(ESP.getFlashChipId()) + String("_-_0"), "App%5CEntity%5CEvents%5CEventHumidity");
+    }
+
+    current_humidity = humidity;
   }
 
   if (WiFi.status() != WL_CONNECTED) {
@@ -270,36 +274,36 @@ void loop(void) {
   }
 }
 
-void postData(String value, String sensor, String type)
+void growBookPostEvent(String value, String sensor, String type)
 {
-  
-   httpClient.begin(String(GROWBOOK_URL) + "event/new?type=" + String(type));
-   //httpClient.addHeader("Content-Type", "text/plain");  //Specify content-type header
-   httpClient.addHeader("Content-Type", "application/x-www-form-urlencoded");  //Specify content-type header
 
-   String postData;
-   postData = "event[type]=" + type + "&event[value]=" + String(value) + "&event[sensor_id]=" + String(sensor) + "&event[note]=&event[plant_id]=" + String(WiFi.hostname());
-   message(String("postData:") + postData, DEBUG);   //Print HTTP return code
-   int httpCode = httpClient.POST(postData);   //Send the request
-   String payload = httpClient.getString();                  //Get the response payload
-    if ( httpCode == HTTP_CODE_OK) {
-      //message("postData Success.", INFO);
-    }
-    else if (httpCode == HTTP_CODE_FOUND){
-      message(String(" + ") + String(httpCode) + ' ' + payload, INFO);    //Print request response payload
-    }
-    else {
-      message(String(" - ") + String(httpCode) + ' ' + payload, DEBUG);    //Print request response payload
-    }
-   
-   
- 
-   httpClient.end();  //Close connection
+  httpClient.begin(String(GROWBOOK_URL) + "event/new?type=" + String(type));
+  //httpClient.addHeader("Content-Type", "text/plain");  //Specify content-type header
+  httpClient.addHeader("Content-Type", "application/x-www-form-urlencoded");  //Specify content-type header
+
+  String postData;
+  postData = "event[type]=" + type + "&event[value]=" + String(value) + "&event[sensor_id]=" + String(sensor) + "&event[note]=&event[plant_id]=" + String(WiFi.hostname());
+  message(String("postData:") + postData, DEBUG);   //Print HTTP return code
+  int httpCode = httpClient.POST(postData);   //Send the request
+  String payload = httpClient.getString();                  //Get the response payload
+  if ( httpCode == HTTP_CODE_OK) {
+    //message("postData Success.", INFO);
+  }
+  else if (httpCode == HTTP_CODE_FOUND) {
+    message(String(" + ") + String(httpCode) + ' ' + payload, INFO);    //Print request response payload
+  }
+  else {
+    message(String(" - ") + String(httpCode) + ' ' + payload, DEBUG);    //Print request response payload
+  }
+
+
+
+  httpClient.end();  //Close connection
 }
 
 /**
- *  Reconnect to wifi - in success enable all services and update time
- */
+    Reconnect to wifi - in success enable all services and update time
+*/
 void reconnect_cnv() {
   close_all_services();
   delay(1000);
@@ -384,25 +388,25 @@ void server_start() {
   server.on("/inline", []() {
     server.send(200, "text/plain", "this works as well");
   });
-//  server.on("/el", []() {
-//    enableLoad();
-//    loadMode = MANUAL;
-//    handleRoot();
-//  });
-//  server.on("/dl", []() {
-//    disableLoad();
-//    loadMode = MANUAL;
-//    handleRoot();
-//  });
-//  server.on("/setDallasIndex", []() {
-//    uploadAndSaveOutsideThermometerIndex();
-//    handleRoot();
-//  });
-//  server.on("/keep", []() {
-//    last_disable_epoch = 0;
-//    saveLoadMode();
-//    handleRoot();
-//  });
+  //  server.on("/el", []() {
+  //    enableLoad();
+  //    loadMode = MANUAL;
+  //    handleRoot();
+  //  });
+  //  server.on("/dl", []() {
+  //    disableLoad();
+  //    loadMode = MANUAL;
+  //    handleRoot();
+  //  });
+  //  server.on("/setDallasIndex", []() {
+  //    uploadAndSaveOutsideThermometerIndex();
+  //    handleRoot();
+  //  });
+  //  server.on("/keep", []() {
+  //    last_disable_epoch = 0;
+  //    saveLoadMode();
+  //    handleRoot();
+  //  });
 
   server.onNotFound(handleNotFound);
   message("Staring HTTP server...", INFO);
@@ -447,7 +451,7 @@ void start_thermal() {
     else {
       // set the resolution to 9 bit (Each Dallas/Maxim device is capable of several different resolutions)
       sensor.setResolution(insideThermometer[i], TEMPERATURE_PRECISION);
-      message("Device " + String(i) + " Resolution: " + String(sensor.getResolution(insideThermometer[i])) , INFO);
+      message("Device " + String(i) + " [" + getAddressString(insideThermometer[i]) + "] Resolution: " + String(sensor.getResolution(insideThermometer[i])) , INFO);
     }
   }
 
