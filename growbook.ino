@@ -80,7 +80,8 @@ DHTesp dht;
 #define CHECK_INTERNET_CONNECTIVITY_CTR     (COUNTER_IN_LOOP_SECOND*120)
 
 
-#define GROWBOOK_URL                        "http://192.168.1.206:8082/"
+//#define GROWBOOK_URL                        "http://192.168.1.206:8082/"
+#define GROWBOOK_URL                        "http://growbook.anshamis.com/"
 /**
  ****************************************************************************************************
 */
@@ -121,6 +122,7 @@ DeviceAddress       insideThermometer[NUMBER_OF_SENSORS];       // arrays to hol
 WiFiUDP             ntpUDP;
 IPAddress           pingServer (8, 8, 8, 8);    // Ping server
 float               current_temp[NUMBER_OF_SENSORS];
+float               current_humidity = 0;
 /**
     You can specify the time server pool and the offset (in seconds, can be changed later with setTimeOffset()).
     Additionaly you can specify the update interval (in milliseconds, can be changed using setUpdateInterval()). */
@@ -212,7 +214,11 @@ void loop(void) {
       float temperature = dht.getTemperature();
       float heat_index = dht.computeHeatIndex(temperature, humidity, false);
       message("DHT Status [" + String(dht.getStatusString()) + "]\tHumidity:" + String(humidity) + "%\tTMP:" + String(temperature) + "/" + String(heat_index) + "C", INFO);
-      postData(String(humidity), String("DHT11_-_") + String(ESP.getFlashChipId()) + String("_-_0"), "App%5CEntity%5CEvents%5CEventHumidity");
+      if (current_humidity != humidity) {
+        
+      }
+      
+      current_humidity = humidity;
   }
 
   if (WiFi.status() != WL_CONNECTED) {
@@ -272,7 +278,7 @@ void postData(String value, String sensor, String type)
    httpClient.addHeader("Content-Type", "application/x-www-form-urlencoded");  //Specify content-type header
 
    String postData;
-   postData = "event[type]=" + type + "&event[value]=" + String(value) + "&event[sensor_id]=" + String(sensor) + "&event[plant]=" + String("1") + "&event[note]=&event[plant_id]=" + String(WiFi.hostname());
+   postData = "event[type]=" + type + "&event[value]=" + String(value) + "&event[sensor_id]=" + String(sensor) + "&event[note]=&event[plant_id]=" + String(WiFi.hostname());
    message(String("postData:") + postData, DEBUG);   //Print HTTP return code
    int httpCode = httpClient.POST(postData);   //Send the request
    String payload = httpClient.getString();                  //Get the response payload
