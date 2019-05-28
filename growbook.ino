@@ -32,11 +32,6 @@
  ****************************************************************************************************
 */
 
-HTTPClient httpClient;    //Declare object of class HTTPClient
-
-
-DHTesp dht;
-
 // WiFi settings
 #define   WIFI_SSID                         "RadiationG"
 #define   WIFI_PASS                         "polkalol"
@@ -127,7 +122,8 @@ float               current_humidity = 0;
     You can specify the time server pool and the offset (in seconds, can be changed later with setTimeOffset()).
     Additionaly you can specify the update interval (in milliseconds, can be changed using setUpdateInterval()). */
 NTPClient           timeClient(ntpUDP, NTP_SERVER, NTP_TIME_OFFSET_SEC, NTP_UPDATE_INTERVAL_MS);
-
+HTTPClient          httpClient;    //Declare object of class HTTPClient
+DHTesp              dht;
 
 /**
  ****************************************************************************************************
@@ -163,8 +159,8 @@ void setup(void) {
   //message("Compile SPIFFS", INFO);
   //  SPIFFS.format();
 
-  dht.setup(DHTpin, DHTesp::DHT11); //for DHT11 Connect DHT sensor to GPIO 17
-  //dht.setup(DHTpin, DHTesp::DHT22); //for DHT22 Connect DHT sensor to GPIO 17
+  //dht.setup(DHTpin, DHTesp::DHT11); //for DHT11
+  dht.setup(DHTpin, DHTesp::DHT22); //for DHT22
 
   Serial.println(build_index());
   wifi_connect();
