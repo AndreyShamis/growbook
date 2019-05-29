@@ -47,6 +47,8 @@
 
 // Thermometer and wire settings
 #define   ONE_WIRE_BUS                      D4                      // D4 2
+//#define   LIGHT_SENSOR_PIN                  A0                      // D6
+
 //#define   LOAD_VCC                          D7                      // D7 13
 #define   TEMPERATURE_PRECISION             12                      // Possible value 9-12
 
@@ -70,7 +72,7 @@
    For example loop_delay=10, counter sec will be 100 , when (counter%100 == 0) happens every second
 */
 #define COUNTER_IN_LOOP_SECOND              (int)(1000/LOOP_DELAY)
-#define CHECK_TMP                           (COUNTER_IN_LOOP_SECOND*3)
+#define CHECK_TMP                           (COUNTER_IN_LOOP_SECOND*10) //(COUNTER_IN_LOOP_SECOND*3)
 #define NTP_UPDATE_COUNTER                  (COUNTER_IN_LOOP_SECOND*60*3)
 #define CHECK_INTERNET_CONNECTIVITY_CTR     (COUNTER_IN_LOOP_SECOND*120)
 
@@ -141,7 +143,7 @@ float   getTemperature(const int dev = 0);
 */
 void setup(void) {
   //ADC_MODE(ADC_VCC);
-  //pinMode(LOAD_VCC, OUTPUT);
+  //pinMode(LIGHT_SENSOR_PIN, INPUT);
   if (CHECK_INTERNET_CONNECT) {
     internet_access = 0;
   }
@@ -181,9 +183,11 @@ void setup(void) {
 
 void loop(void) {
   server.handleClient();
+  //  int lightValue;
+  //  lightValue = analogRead(LIGHT_SENSOR_PIN);
+  //  message("Light sensor value is " + String(lightValue), INFO);
 
   if (counter % CHECK_TMP == 0) {
-    message("Counter:" + String(counter) + " .CHECK_TMP=:" + String(CHECK_TMP), INFO);
     String prinrt_tmp = "TMP is ";
     for (int i = 0; i < sensor.getDeviceCount(); i++) {
       float prevTmp = current_temp[i];
