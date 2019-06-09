@@ -38,7 +38,7 @@
 
 #define   MESSAGE_OPT                       1
 // Custom settings
-#define   CHECK_INTERNET_CONNECT            0                       // For disable internet connectiviy check use 0
+#define   CHECK_INTERNET_CONNECT            1                       // For disable internet connectiviy check use 0
 #define   RECONNECT_AFTER_FAILS             100                     // 20 = ~1 min -> 100 =~ 4min
 
 // Thermometer and wire settings
@@ -283,7 +283,9 @@ bool sonsors_dht() {
   float humidity = dht.getHumidity();
   float temperature = dht.getTemperature();
   float heat_index = dht.computeHeatIndex(temperature, humidity, false);
-  sensorsSingleLog += String(" \t Humidity:") + "DHT Status [" + dht.getStatusString() + "]\tHumidity: [" + humidity + "%] \t TMP:" + temperature + "C - Heat Index: [" + heat_index + " C]";
+  float dewPoint = dht.computeDewPoint(temperature, humidity, false);
+  float absoluteHumidity = dht.computeAbsoluteHumidity(temperature, humidity, false);
+  sensorsSingleLog += String(" \t Humidity:") + "DHT Status [" + dht.getStatusString() + "]\tHumidity: [" + humidity + "%] \t TMP:" + temperature + "C - Heat Index: [" + heat_index + " C]" + " DewPoint : " + String(dewPoint) + " absoluteHumidity:" + String(absoluteHumidity) + " dec size:" + String(dht.getNumberOfDecimalsHumidity());
   if (fabs(current_humidity - humidity)  > MIN_HUMIDITY_TH) {
     String model = String("DHT") + String(dht.getModel()) + String(dht.getModel());
     growBookPostEvent(String(humidity), model + "_-_" + String(WiFi.hostname()) + String("_-_0"), TypeNames[HUMIDITY], String(heat_index));
@@ -749,14 +751,13 @@ String read_setting(const char* fname) {
 
 */
 void print_all_info() {
-  message("", INFO);
+  message("", DEBUG);
+  message("internet_access \t:" + String(internet_access), INFO);
   message("MIN_TEMPERATURE_TH \t:" + String(MIN_TEMPERATURE_TH), INFO);
   message("MIN_HUMIDITY_TH \t:" + String(MIN_HUMIDITY_TH), INFO);
   message("CHECK_INTERNET_CONNECT \t:" + String(CHECK_INTERNET_CONNECT), INFO);
   message("DHTesp_MODEL \t:" + String(dht.getModel()), INFO);
-  message("HostName: " + WiFi.hostname() + " |Ch: " + String(WiFi.channel()) + " |RSSI: " + WiFi.RSSI() + " |MAC: " + WiFi.macAddress(), INFO);
-  message("Flash Chip Id/Size/Speed/Mode: " + String(ESP.getFlashChipId()) + "/" + String(ESP.getFlashChipSize()) + "/" + String(ESP.getFlashChipSpeed()) + "/" + String(ESP.getFlashChipMode()), INFO);
-  message("SdkVersion: " + String(ESP.getSdkVersion()) + "\tCoreVersion: " + ESP.getCoreVersion() + "\tBootVersion: " + ESP.getBootVersion(), INFO);
-  message("CpuFreqMHz: " + String(ESP.getCpuFreqMHz()) + " \tBootMode: " + String(ESP.getBootMode()) + "\tSketchSize: " + String(ESP.getSketchSize()) + "\tFreeSketchSpace: " + String(ESP.getFreeSketchSpace()), INFO);
+  message("HostName: " + WiFi.hostname() + " |Ch: " + String(WiFi.channel()) + " |RSSI: " + WiFi.RSSI() + " |MAC: " + WiFi.macAddress() + " \t Flash Chip Id/Size/Speed/Mode: " + String(ESP.getFlashChipId()) + "/" + String(ESP.getFlashChipSize()) + "/" + String(ESP.getFlashChipSpeed()) + "/" + String(ESP.getFlashChipMode()), INFO);
+  message("SdkVersion: " + String(ESP.getSdkVersion()) + "\tCoreVersion: " + ESP.getCoreVersion() + "\tBootVersion: " + ESP.getBootVersion() + "\t CpuFreqMHz: " + String(ESP.getCpuFreqMHz()) + " \tBootMode: " + String(ESP.getBootMode()) + "\tSketchSize: " + String(ESP.getSketchSize()) + "\tFreeSketchSpace: " + String(ESP.getFreeSketchSpace()), INFO);
   //message("getResetReason: " + ESP.getResetReason() + " |getResetInfo: " + ESP.getResetInfo() + " |Address : " + getAddressString(insideThermometer[0]), INFO);
 }
