@@ -284,7 +284,7 @@ bool sonsors_dallas() {
     float tmp_diff = prevTmp - current_temp[i];
     sensorsSingleLog += " \t " + String(i) + ": " + String(current_temp[i]) + " C \t | ";
     if (fabs(tmp_diff) > MIN_TEMPERATURE_TH) {
-      growBookPostEvent(String(current_temp[i]), String(getAddressString(insideThermometer[i])), TypeNames[TEMPERATURE]);
+      growBookPostEvent(String(current_temp[i]), String(getAddressString(insideThermometer[i])), TypeNames[TEMPERATURE], "");
     }
   }
   return true;
@@ -296,7 +296,7 @@ bool sonsors_dht() {
   float heat_index = dht.computeHeatIndex(temperature, humidity, false);
   sensorsSingleLog += String(" \t Humidity:") + "DHT Status [" + dht.getStatusString() + "]\tHumidity: [" + humidity + "%] \t TMP:" + temperature + "C - Heat Index: [" + heat_index + " C]";
   if (fabs(current_humidity - humidity)  > MIN_HUMIDITY_TH) {
-    growBookPostEvent(String(humidity), String("DHT11_-_") + String(ESP.getFlashChipId()) + String("_-_0"), TypeNames[HUMIDITY]);
+    growBookPostEvent(String(humidity), String("DHT11_-_") + String(ESP.getFlashChipId()) + String("_-_0"), TypeNames[HUMIDITY], String(heat_index));
   }
   current_humidity = humidity;
 
@@ -306,14 +306,17 @@ bool sonsors_dht() {
 /**
 
 */
-void growBookPostEvent(String value, String sensor, String type)
+void growBookPostEvent(String value, String sensor, String type, String value3)
 {
   WiFiClient client;
   String url = String(GROWBOOK_URL) + "event/new?type=" + String(type);
   httpClient.begin(client, url);
   httpClient.addHeader("Content-Type", "application/x-www-form-urlencoded");  //Specify content-type header
   String postData;
-  postData = "event[type]=" + type + "&event[value]=" + String(value) + "&event[sensor_id]=" + String(sensor) + "&event[note]=&event[plant_id]=" + String(WiFi.hostname());
+  postData = "type=" + type + "&value=" + String(value) + "&sensor_id=" + String(sensor) + "&note=&plant_id=" + String(WiFi.hostname());
+  if ( value3 != "" ) {
+    postData += "&value3=" + value3;
+  }
   message(String("postData:") + postData, DEBUG); // Print HTTP return code
   int httpCode = httpClient.POST(postData); // Send the request
   String payload = httpClient.getString(); // Get the response payload
