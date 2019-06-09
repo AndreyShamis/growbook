@@ -38,19 +38,15 @@
 
 #define   MESSAGE_OPT                       1
 // Custom settings
-#define   CHECK_TMP_INSIDE                  0                       // For disable validation of seconds thermometer use 0
 #define   CHECK_INTERNET_CONNECT            0                       // For disable internet connectiviy check use 0
 #define   RECONNECT_AFTER_FAILS             100                     // 20 = ~1 min -> 100 =~ 4min
 
 // Thermometer and wire settings
 #define   ONE_WIRE_BUS                      D4                      // D4 2
-//#define   LIGHT_SENSOR_PIN                  A0                      // D6
-
-//#define   LOAD_VCC                          D7                      // D7 13
+#define   DHTpin                            D5                      // 14 D5 of NodeMCU is GPIO14
 #define   TEMPERATURE_PRECISION             12                      // Possible value 9-12
 
 // DHT Settings
-#define   DHTpin                            D5                      // 14 D5 of NodeMCU is GPIO14
 
 // NTP settings
 #define   NTP_SERVER                        "1.asia.pool.ntp.org"   // Pool of ntp server http://www.pool.ntp.org/zone/asia
@@ -65,8 +61,8 @@
 #define   NUMBER_OF_SENSORS                 4
 #define   HIGH_TEMPERATURE                  70                      // If temperature bigger of this value we recheck it again
 
-#define   MIN_TEMPERATURE_TH                0.9                     // Minimal threshhold for temperature to update
-#define   MIN_HUMIDITY_TH                   0.3                     // Minimal threshhold for humidity to update
+#define   MIN_TEMPERATURE_TH                0.09                    // Minimal threshhold for temperature to update
+#define   MIN_HUMIDITY_TH                   0.1                     // Minimal threshhold for humidity to update
 /**
    shows counter values identical to one second
    For example loop_delay=10, counter sec will be 100 , when (counter%100 == 0) happens every second
@@ -79,15 +75,10 @@
 
 //#define GROWBOOK_URL                        "http://192.168.1.206:8082/"
 #define GROWBOOK_URL                        "http://growbook.anshamis.com/"
+
 /**
  ****************************************************************************************************
 */
-typedef enum {
-  UNDEF     = 0,  //  UNKNOWN
-  MANUAL    = 1,  //  Controlled by USER - manual diable, manual enable, secured by MAX_TMP
-  AUTO      = 2,  //  Controlled by TIME, secured by MAX_TMP
-  KEEP      = 3,  //  Controlled by BOARD, keep temperature between MAX_TMP <> TRASHHOLD_TMP, secured by MAX_TMP
-} LoadModeType;
 
 enum LogType {
   INFO      = 0,
@@ -169,8 +160,8 @@ void setup(void) {
   //message("Compile SPIFFS", INFO);
   //  SPIFFS.format();
 
-  //dht.setup(DHTpin, DHTesp::DHT11); //for DHT11
-  dht.setup(DHTpin, DHTesp::DHT22); //for DHT22
+  dht.setup(DHTpin, DHTesp::AUTO_DETECT); //for DHT11
+  //dht.setup(DHTpin, DHTesp::DHT22); //for DHT22
 
   Serial.println(build_index());
   wifi_connect();
@@ -180,10 +171,8 @@ void setup(void) {
   //timeClient.update();
   delay(200);
   timeClient.forceUpdate();
-  message("MIN_TEMPERATURE_TH \t:" + String(MIN_TEMPERATURE_TH), DEBUG);
-  message("MIN_HUMIDITY_TH \t:" + String(MIN_HUMIDITY_TH), DEBUG);
-  message("CHECK_INTERNET_CONNECT \t:" + String(CHECK_INTERNET_CONNECT), DEBUG);
   message(" ----> All started <----", PASS);
+  print_all_info();
 }
 
 /**
@@ -296,7 +285,8 @@ bool sonsors_dht() {
   float heat_index = dht.computeHeatIndex(temperature, humidity, false);
   sensorsSingleLog += String(" \t Humidity:") + "DHT Status [" + dht.getStatusString() + "]\tHumidity: [" + humidity + "%] \t TMP:" + temperature + "C - Heat Index: [" + heat_index + " C]";
   if (fabs(current_humidity - humidity)  > MIN_HUMIDITY_TH) {
-    growBookPostEvent(String(humidity), String("DHT11_-_") + String(ESP.getFlashChipId()) + String("_-_0"), TypeNames[HUMIDITY], String(heat_index));
+    String model = String("DHT") + String(dht.getModel()) + String(dht.getModel());
+    growBookPostEvent(String(humidity), model + "_-_" + String(WiFi.hostname()) + String("_-_0"), TypeNames[HUMIDITY], String(heat_index));
   }
   current_humidity = humidity;
 
@@ -763,6 +753,7 @@ void print_all_info() {
   message("MIN_TEMPERATURE_TH \t:" + String(MIN_TEMPERATURE_TH), INFO);
   message("MIN_HUMIDITY_TH \t:" + String(MIN_HUMIDITY_TH), INFO);
   message("CHECK_INTERNET_CONNECT \t:" + String(CHECK_INTERNET_CONNECT), INFO);
+  message("DHTesp_MODEL \t:" + String(dht.getModel()), INFO);
   message("HostName: " + WiFi.hostname() + " |Ch: " + String(WiFi.channel()) + " |RSSI: " + WiFi.RSSI() + " |MAC: " + WiFi.macAddress(), INFO);
   message("Flash Chip Id/Size/Speed/Mode: " + String(ESP.getFlashChipId()) + "/" + String(ESP.getFlashChipSize()) + "/" + String(ESP.getFlashChipSpeed()) + "/" + String(ESP.getFlashChipMode()), INFO);
   message("SdkVersion: " + String(ESP.getSdkVersion()) + "\tCoreVersion: " + ESP.getCoreVersion() + "\tBootVersion: " + ESP.getBootVersion(), INFO);
