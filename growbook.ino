@@ -41,9 +41,6 @@
 #define   CHECK_TMP_INSIDE                  0                       // For disable validation of seconds thermometer use 0
 #define   CHECK_INTERNET_CONNECT            0                       // For disable internet connectiviy check use 0
 #define   RECONNECT_AFTER_FAILS             100                     // 20 = ~1 min -> 100 =~ 4min
-#define   MAX_POSSIBLE_TMP                  32                      // MAX possible tmp
-#define   MAX_INCORRECT_TMP                 50                      // Usally when Vcc disconnected the tmp will be 85
-#define   MIN_INCORRECT_TMP                 -1                      // Usally when GND or DATA disconnected the tmp will be -127
 
 // Thermometer and wire settings
 #define   ONE_WIRE_BUS                      D4                      // D4 2
@@ -66,7 +63,10 @@
 // Unchangeable settings
 #define   INCORRECT_EPOCH                   200000                  // Minimum value for time epoch
 #define   NUMBER_OF_SENSORS                 4
+#define   HIGH_TEMPERATURE                  70                      // If temperature bigger of this value we recheck it again
 
+#define   MIN_TEMPERATURE_TH                0.9                     // Minimal threshhold for temperature to update
+#define   MIN_HUMIDITY_TH                   0.3                     // Minimal threshhold for humidity to update
 /**
    shows counter values identical to one second
    For example loop_delay=10, counter sec will be 100 , when (counter%100 == 0) happens every second
@@ -99,6 +99,12 @@ enum LogType {
   DEBUG     = 6,
 } ;
 
+enum SensorType {
+  HUMIDITY = 0,
+  TEMPERATURE = 1,
+};
+
+String TypeNames[2] = {"App%5CEntity%5CEvents%5CEventHumidity", "App%5CEntity%5CEvents%5CEventTemperature"};
 
 /**
  ****************************************************************************************************
@@ -109,6 +115,8 @@ int                 counter                   = 0;
 int                 last_disable_epoch        = 0;
 bool                internet_access           = 0;
 unsigned short      internet_access_failures  = 0;
+
+String              sensorsSingleLog          = "";
 /**
  ****************************************************************************************************
 */
@@ -170,10 +178,12 @@ void setup(void) {
   timeClient.begin();
   start_thermal();
   //timeClient.update();
-  //delay(100);
+  delay(200);
   timeClient.forceUpdate();
+  message("MIN_TEMPERATURE_TH \t:" + String(MIN_TEMPERATURE_TH), DEBUG);
+  message("MIN_HUMIDITY_TH \t:" + String(MIN_HUMIDITY_TH), DEBUG);
+  message("CHECK_INTERNET_CONNECT \t:" + String(CHECK_INTERNET_CONNECT), DEBUG);
   message(" ----> All started <----", PASS);
-
 }
 
 /**
@@ -182,49 +192,10 @@ void setup(void) {
 */
 
 void loop(void) {
+  // WEB SERVER
   server.handleClient();
-  //  int lightValue;
-  //  lightValue = analogRead(LIGHT_SENSOR_PIN);
-  //  message("Light sensor value is " + String(lightValue), INFO);
 
-  if (counter % CHECK_TMP == 0) {
-    String prinrt_tmp = "TMP is ";
-    for (int i = 0; i < sensor.getDeviceCount(); i++) {
-      float prevTmp = current_temp[i];
-      float tmp_1 = 0;
-      float tmp_2 = 1;
-      current_temp[i] = getTemperature(i);
-      if (prevTmp != current_temp[i]) {
-        while (tmp_1 != tmp_2) {
-          delay(50);
-          tmp_1 = getTemperature(i);
-          delay(50);
-          tmp_2 = getTemperature(i);
-        }
-        current_temp[i] = tmp_1;
-      }
-
-      prinrt_tmp = prinrt_tmp + String(i) + ": " + String(current_temp[i]) + " C, | ";
-      if (prevTmp != current_temp[i]) {
-        growBookPostEvent(String(current_temp[i]), String(getAddressString(insideThermometer[i])), "App%5CEntity%5CEvents%5CEventTemperature");
-      }
-
-    }
-    int dht_min_period = dht.getMinimumSamplingPeriod();
-    message(prinrt_tmp, INFO);
-    delay(dht_min_period);
-
-    float humidity = dht.getHumidity();
-    float temperature = dht.getTemperature();
-    float heat_index = dht.computeHeatIndex(temperature, humidity, false);
-    message("DHT Status [" + String(dht.getStatusString()) + "]\tHumidity:" + String(humidity) + "%\tTMP:" + String(temperature) + "/" + String(heat_index) + "C", INFO);
-    if (current_humidity != humidity) {
-      growBookPostEvent(String(humidity), String("DHT11_-_") + String(ESP.getFlashChipId()) + String("_-_0"), "App%5CEntity%5CEvents%5CEventHumidity");
-    }
-
-    current_humidity = humidity;
-  }
-
+  // WIFI CHECK
   if (WiFi.status() != WL_CONNECTED) {
     internet_access = 0;
     delay(2000);
@@ -235,6 +206,19 @@ void loop(void) {
     }
   }
 
+  //------------------------------------------------------------------------------------------------------------
+  // SENSORS
+  if (counter % CHECK_TMP == 0) {
+    sensorsSingleLog = "";
+    sonsors_dallas();
+    //message(prinrt_tmp, INFO);
+    //delay(dht.getMinimumSamplingPeriod());
+    sonsors_dht();
+    message(sensorsSingleLog, INFO);
+
+  }
+
+  // CEONNECTIVITY - CHECK PING
   if (CHECK_INTERNET_CONNECT) {
     if (counter % CHECK_INTERNET_CONNECTIVITY_CTR == 0 || !internet_access)
     {
@@ -262,6 +246,7 @@ void loop(void) {
   }
   if (counter % NTP_UPDATE_COUNTER == 0) {
     if (internet_access) {
+      message("Starting update the time...", DEBUG);
       update_time();
     }
   }
@@ -274,35 +259,75 @@ void loop(void) {
   }
 }
 
-void growBookPostEvent(String value, String sensor, String type)
-{
-
-  httpClient.begin(String(GROWBOOK_URL) + "event/new?type=" + String(type));
-  //httpClient.addHeader("Content-Type", "text/plain");  //Specify content-type header
-  httpClient.addHeader("Content-Type", "application/x-www-form-urlencoded");  //Specify content-type header
-
-  String postData;
-  postData = "event[type]=" + type + "&event[value]=" + String(value) + "&event[sensor_id]=" + String(sensor) + "&event[note]=&event[plant_id]=" + String(WiFi.hostname());
-  message(String("postData:") + postData, DEBUG);   //Print HTTP return code
-  int httpCode = httpClient.POST(postData);   //Send the request
-  String payload = httpClient.getString();                  //Get the response payload
-  if ( httpCode == HTTP_CODE_OK) {
-    //message("postData Success.", INFO);
+bool sonsors_dallas() {
+  sensorsSingleLog = "Temperature:";
+  for (int i = 0; i < sensor.getDeviceCount(); i++) {
+    float prevTmp = current_temp[i];
+    float tmp_1 = 0;
+    float tmp_2 = 1;
+    current_temp[i] = getTemperature(i);
+    if (prevTmp != current_temp[i]) {
+      short int _c = 0;
+      while (tmp_1 != tmp_2 && _c < 10) {
+        _c++;
+        delay(20 * _c);
+        tmp_1 = getTemperature(i);
+        tmp_2 = getTemperature(i);
+        if (tmp_1 > HIGH_TEMPERATURE && tmp_1 == tmp_2) {
+          message("High temperature found, recheck. Current" + String(tmp_1) + " Threshhold[HIGH_TEMPERATURE]: " + String(HIGH_TEMPERATURE), CRITICAL);
+          tmp_1 = 0;
+          delay(200);
+        }
+      }
+      current_temp[i] = tmp_1;
+    }
+    float tmp_diff = prevTmp - current_temp[i];
+    sensorsSingleLog += " \t " + String(i) + ": " + String(current_temp[i]) + " C \t | ";
+    if (fabs(tmp_diff) > MIN_TEMPERATURE_TH) {
+      growBookPostEvent(String(current_temp[i]), String(getAddressString(insideThermometer[i])), TypeNames[TEMPERATURE]);
+    }
   }
-  else if (httpCode == HTTP_CODE_FOUND) {
-    message(String(" + ") + String(httpCode) + ' ' + payload, INFO);    //Print request response payload
+  return true;
+}
+
+bool sonsors_dht() {
+  float humidity = dht.getHumidity();
+  float temperature = dht.getTemperature();
+  float heat_index = dht.computeHeatIndex(temperature, humidity, false);
+  sensorsSingleLog += String(" \t Humidity:") + "DHT Status [" + dht.getStatusString() + "]\tHumidity: [" + humidity + "%] \t TMP:" + temperature + "C - Heat Index: [" + heat_index + " C]";
+  if (fabs(current_humidity - humidity)  > MIN_HUMIDITY_TH) {
+    growBookPostEvent(String(humidity), String("DHT11_-_") + String(ESP.getFlashChipId()) + String("_-_0"), TypeNames[HUMIDITY]);
   }
-  else {
-    message(String(" - ") + String(httpCode) + ' ' + payload, DEBUG);    //Print request response payload
-  }
+  current_humidity = humidity;
 
-
-
-  httpClient.end();  //Close connection
+  return true;
 }
 
 /**
-    Reconnect to wifi - in success enable all services and update time
+
+*/
+void growBookPostEvent(String value, String sensor, String type)
+{
+  WiFiClient client;
+  String url = String(GROWBOOK_URL) + "event/new?type=" + String(type);
+  httpClient.begin(client, url);
+  httpClient.addHeader("Content-Type", "application/x-www-form-urlencoded");  //Specify content-type header
+  String postData;
+  postData = "event[type]=" + type + "&event[value]=" + String(value) + "&event[sensor_id]=" + String(sensor) + "&event[note]=&event[plant_id]=" + String(WiFi.hostname());
+  message(String("postData:") + postData, DEBUG); // Print HTTP return code
+  int httpCode = httpClient.POST(postData); // Send the request
+  String payload = httpClient.getString(); // Get the response payload
+  //  if ( httpCode == HTTP_CODE_OK) {
+  if (httpCode == HTTP_CODE_FOUND) {
+    message(String(" + ") + String(httpCode) + ' ' + payload, INFO);    //Print request response payload
+  } else {
+    message(String(" - ") + String(httpCode) + ' ' + payload, DEBUG);    //Print request response payload
+  }
+  httpClient.end();
+}
+
+/**
+   Reconnect to wifi - in success enable all services and update time
 */
 void reconnect_cnv() {
   close_all_services();
@@ -458,13 +483,11 @@ void start_thermal() {
 }
 
 /**
-
 */
 String build_index() {
 
   String ret_js = String("") + "load = \n{" +
                   "'internet_access': '" + String(internet_access) + "'," +
-                  "'max_temperature': '" + String(MAX_POSSIBLE_TMP) + "'," +
                   "'current_temperature_0': '" + String(current_temp[0]) + "'," +
                   "'current_temperature_1': '" + String(current_temp[1]) + "'," +
                   "'current_temperature_2': '" + String(current_temp[2]) + "'," +
@@ -734,6 +757,9 @@ String read_setting(const char* fname) {
 */
 void print_all_info() {
   message("", INFO);
+  message("MIN_TEMPERATURE_TH \t:" + String(MIN_TEMPERATURE_TH), INFO);
+  message("MIN_HUMIDITY_TH \t:" + String(MIN_HUMIDITY_TH), INFO);
+  message("CHECK_INTERNET_CONNECT \t:" + String(CHECK_INTERNET_CONNECT), INFO);
   message("HostName: " + WiFi.hostname() + " |Ch: " + String(WiFi.channel()) + " |RSSI: " + WiFi.RSSI() + " |MAC: " + WiFi.macAddress(), INFO);
   message("Flash Chip Id/Size/Speed/Mode: " + String(ESP.getFlashChipId()) + "/" + String(ESP.getFlashChipSize()) + "/" + String(ESP.getFlashChipSpeed()) + "/" + String(ESP.getFlashChipMode()), INFO);
   message("SdkVersion: " + String(ESP.getSdkVersion()) + "\tCoreVersion: " + ESP.getCoreVersion() + "\tBootVersion: " + ESP.getBootVersion(), INFO);
