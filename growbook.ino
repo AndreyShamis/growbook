@@ -44,6 +44,8 @@
 // Thermometer and wire settings
 #define   ONE_WIRE_BUS                      D4                      // D4 2
 #define   DHTpin                            D5                      // 14 D5 of NodeMCU is GPIO14
+#define   HYDROMETER_PIN                    A0
+#define   HYDROMETER_D0_PIN                 D1
 #define   TEMPERATURE_PRECISION             12                      // Possible value 9-12
 
 // DHT Settings
@@ -129,7 +131,7 @@ DHTesp              dht;
 /**
  ****************************************************************************************************
 */
-ADC_MODE(ADC_VCC);
+//ADC_MODE(ADC_VCC);              // This disable ADC read!
 float   getTemperature(const int dev = 0);
 /**
  ****************************************************************************************************
@@ -197,7 +199,10 @@ void loop(void) {
 
   //------------------------------------------------------------------------------------------------------------
   // SENSORS
+
   if (counter % CHECK_TMP == 0) {
+    int hydro_value = analogRead(HYDROMETER_PIN);
+    message("HYDROMETER VALUE: " + String((1024 - hydro_value) / 10) , INFO);
     sensorsSingleLog = "";
     sonsors_dallas();
     //message(prinrt_tmp, INFO);
