@@ -95,9 +95,10 @@ enum LogType {
 enum SensorType {
   HUMIDITY = 0,
   TEMPERATURE = 1,
+  HYDROMETER = 2,
 };
 
-String TypeNames[2] = {"App%5CEntity%5CEvents%5CEventHumidity", "App%5CEntity%5CEvents%5CEventTemperature"};
+String TypeNames[3] = {"App%5CEntity%5CEvents%5CEventHumidity", "App%5CEntity%5CEvents%5CEventTemperature", "App%5CEntity%5CEvents%5CEventSoilHydrometer"};
 
 /**
  ****************************************************************************************************
@@ -127,7 +128,7 @@ float               current_humidity = 0;
 NTPClient           timeClient(ntpUDP, NTP_SERVER, NTP_TIME_OFFSET_SEC, NTP_UPDATE_INTERVAL_MS);
 HTTPClient          httpClient;    //Declare object of class HTTPClient
 DHTesp              dht;
-
+int                 hydro_value_prev = 0;
 /**
  ****************************************************************************************************
 */
@@ -201,10 +202,10 @@ void loop(void) {
   // SENSORS
 
   if (counter % CHECK_TMP == 0) {
-    int hydro_value = analogRead(HYDROMETER_PIN);
-    message("HYDROMETER VALUE: " + String((1024 - hydro_value) / 10) , INFO);
     sensorsSingleLog = "";
     sonsors_dallas();
+    sensors_hydrometer();
+
     //message(prinrt_tmp, INFO);
     //delay(dht.getMinimumSamplingPeriod());
     sonsors_dht();
@@ -253,6 +254,19 @@ void loop(void) {
   }
 }
 
+bool sensors_hydrometer()
+{
+  int hydro_value = analogRead(HYDROMETER_PIN);
+  hydro_value = (1024 - hydro_value) / 10;
+  sensorsSingleLog += " HYDRO:[" + String(hydro_value) + "]";
+  //if (hydro_value_prev != hydro_value) {
+    String model = "HYDRO_" + String(HYDROMETER_PIN) + "_";
+    growBookPostEvent(String(hydro_value), model + "_-_" + String(WiFi.hostname()) + String("_-_0"), TypeNames[HYDROMETER], "");
+
+ // }
+  hydro_value_prev = hydro_value;
+
+}
 bool sonsors_dallas() {
   sensorsSingleLog = "Temperature:";
   for (int i = 0; i < sensor.getDeviceCount(); i++) {
