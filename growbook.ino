@@ -258,7 +258,7 @@ bool sensors_hydrometer()
 {
   float hydro_value = analogRead(HYDROMETER_PIN);
 
-  hydro_value = (1023 - hydro_value) / 10.0;
+  hydro_value = float ((1023 - hydro_value) / 10);
   sensorsSingleLog += " HYDRO:[" + String(hydro_value) + "]";
   //if (hydro_value_prev != hydro_value) {
   String model = "HYDRO_" + String(HYDROMETER_PIN) + "_";
