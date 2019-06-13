@@ -55,7 +55,7 @@
 #define   NTP_TIME_OFFSET_SEC               10800                   // Time offset
 #define   NTP_UPDATE_INTERVAL_MS            60000                   // NTP Update interval - 1 min
 
-#define   UART_BAUD_RATE                    115200 //921600
+#define   UART_BAUD_RATE                    9600 //115200 //921600
 
 #define   LOOP_DELAY                        50                      // Wait each loop for LOOP_DELAY
 // Unchangeable settings
@@ -128,7 +128,7 @@ float               current_humidity = 0;
 NTPClient           timeClient(ntpUDP, NTP_SERVER, NTP_TIME_OFFSET_SEC, NTP_UPDATE_INTERVAL_MS);
 HTTPClient          httpClient;    //Declare object of class HTTPClient
 DHTesp              dht;
-int                 hydro_value_prev = 0;
+float               hydro_value_prev = 0;
 /**
  ****************************************************************************************************
 */
@@ -256,18 +256,19 @@ void loop(void) {
 
 bool sensors_hydrometer()
 {
-  int hydro_value = analogRead(HYDROMETER_PIN);
-  if (hydro_value > 0 && hydro_value < 1024) {
-    hydro_value = (1024 - hydro_value) / 10;
-    sensorsSingleLog += " HYDRO:[" + String(hydro_value) + "]";
-    //if (hydro_value_prev != hydro_value) {
-    String model = "HYDRO_" + String(HYDROMETER_PIN) + "_";
+  float hydro_value = analogRead(HYDROMETER_PIN);
+
+  hydro_value = (1023 - hydro_value) / 10.0;
+  sensorsSingleLog += " HYDRO:[" + String(hydro_value) + "]";
+  //if (hydro_value_prev != hydro_value) {
+  String model = "HYDRO_" + String(HYDROMETER_PIN) + "_";
+  if (hydro_value < 100 && hydro_value > 0) {
     growBookPostEvent(String(hydro_value), model + "_-_" + String(WiFi.hostname()) + String("_-_0"), TypeNames[HYDROMETER], "");
-    hydro_value_prev = hydro_value;
-  } else {
+  }
+  else {
     message("Hudrometer bad value: " + String(hydro_value), DEBUG);
   }
-
+  hydro_value_prev = hydro_value;
 
 }
 bool sonsors_dallas() {
@@ -345,10 +346,10 @@ void growBookPostEvent(String value, String sensor, String type, String value3)
     String note = "";
     String url = String(GROWBOOK_URL) + "event/new?type=" + String(type);
     httpClient.begin(client, url);
-    httpClient.setTimeout(2000);
+    httpClient.setTimeout(2200);
     httpClient.addHeader("Content-Type", "application/x-www-form-urlencoded");  //Specify content-type header
     String postData;
-    postData = "value=" + urlencode(value) + "&sensor_id=" + urlencode(sensor) + "&note=" + urlencode(note) +"&plant_id=" + urlencode(WiFi.hostname());
+    postData = "value=" + urlencode(value) + "&sensor_id=" + urlencode(sensor) + "&note=" + urlencode(note) + "&plant_id=" + urlencode(WiFi.hostname());
     if ( value3 != "" ) {
       postData += "&value3=" + urlencode(value3);
     }
