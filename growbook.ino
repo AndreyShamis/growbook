@@ -55,7 +55,7 @@
 #define   NTP_TIME_OFFSET_SEC               10800                   // Time offset
 #define   NTP_UPDATE_INTERVAL_MS            60000                   // NTP Update interval - 1 min
 
-#define   UART_BAUD_RATE                    921600
+#define   UART_BAUD_RATE                    115200 //921600
 
 #define   LOOP_DELAY                        50                      // Wait each loop for LOOP_DELAY
 // Unchangeable settings
@@ -200,7 +200,6 @@ void loop(void) {
 
   //------------------------------------------------------------------------------------------------------------
   // SENSORS
-
   if (counter % CHECK_TMP == 0) {
     sensorsSingleLog = "";
     sonsors_dallas();
@@ -212,6 +211,7 @@ void loop(void) {
     message(sensorsSingleLog, INFO);
 
   }
+
 
   // CEONNECTIVITY - CHECK PING
   if (CHECK_INTERNET_CONNECT) {
@@ -257,14 +257,17 @@ void loop(void) {
 bool sensors_hydrometer()
 {
   int hydro_value = analogRead(HYDROMETER_PIN);
-  hydro_value = (1024 - hydro_value) / 10;
-  sensorsSingleLog += " HYDRO:[" + String(hydro_value) + "]";
-  //if (hydro_value_prev != hydro_value) {
+  if (hydro_value > 0 && hydro_value < 1024) {
+    hydro_value = (1024 - hydro_value) / 10;
+    sensorsSingleLog += " HYDRO:[" + String(hydro_value) + "]";
+    //if (hydro_value_prev != hydro_value) {
     String model = "HYDRO_" + String(HYDROMETER_PIN) + "_";
     growBookPostEvent(String(hydro_value), model + "_-_" + String(WiFi.hostname()) + String("_-_0"), TypeNames[HYDROMETER], "");
+    hydro_value_prev = hydro_value;
+  } else {
+    message("Hudrometer bad value: " + String(hydro_value), DEBUG);
+  }
 
- // }
-  hydro_value_prev = hydro_value;
 
 }
 bool sonsors_dallas() {
@@ -314,30 +317,62 @@ bool sonsors_dht() {
   return true;
 }
 
+String urlencode(const String &s) {
+  static const char lookup[] = "0123456789abcdef";
+  String result;
+  size_t len = s.length();
+
+  for (size_t i = 0; i < len; i++) {
+    const char c = s[i];
+    if (('0' <= c && c <= '9') || ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z') || (c == '-' || c == '_' || c == '.' || c == '~')) {
+      result += c;
+    } else {
+      result += "%" + String(lookup[(c & 0xf0) >> 4]) + String(lookup[c & 0x0f]);
+    }
+  }
+
+  return result;
+}
+
 /**
 
 */
 void growBookPostEvent(String value, String sensor, String type, String value3)
 {
-  WiFiClient client;
-  String url = String(GROWBOOK_URL) + "event/new?type=" + String(type);
-  httpClient.begin(client, url);
-  httpClient.addHeader("Content-Type", "application/x-www-form-urlencoded");  //Specify content-type header
-  String postData;
-  postData = "type=" + type + "&value=" + String(value) + "&sensor_id=" + String(sensor) + "&note=&plant_id=" + String(WiFi.hostname());
-  if ( value3 != "" ) {
-    postData += "&value3=" + value3;
-  }
-  message(String("postData:") + postData, DEBUG); // Print HTTP return code
-  int httpCode = httpClient.POST(postData); // Send the request
-  String payload = httpClient.getString(); // Get the response payload
-  //  if ( httpCode == HTTP_CODE_OK) {
-  if (httpCode == HTTP_CODE_FOUND) {
-    message(String(" + ") + String(httpCode) + ' ' + payload, INFO);    //Print request response payload
+  if ((CHECK_INTERNET_CONNECT && internet_access) || !CHECK_INTERNET_CONNECT) {
+
+    WiFiClient client;
+    String note = "";
+    String url = String(GROWBOOK_URL) + "event/new?type=" + String(type);
+    httpClient.begin(client, url);
+    httpClient.setTimeout(2000);
+    httpClient.addHeader("Content-Type", "application/x-www-form-urlencoded");  //Specify content-type header
+    String postData;
+    postData = "value=" + urlencode(value) + "&sensor_id=" + urlencode(sensor) + "&note=" + urlencode(note) +"&plant_id=" + urlencode(WiFi.hostname());
+    if ( value3 != "" ) {
+      postData += "&value3=" + urlencode(value3);
+    }
+    postData = (postData) + "&type=" + type;
+    message(String("postData:") + postData, DEBUG); // Print HTTP return code
+    int httpCode = httpClient.POST(postData); // Send the request
+    String payload = httpClient.getString(); // Get the response payload
+    //  if ( httpCode == HTTP_CODE_OK) {
+    if (httpCode < 0) {
+      message(String(" !  -  Code:") + String(httpCode) + " " + String(" \t Message :") + httpClient.errorToString(httpCode) , DEBUG);
+    }
+    else {
+      if (httpCode == HTTP_CODE_FOUND || httpCode == HTTP_CODE_OK) {
+        message(String(" +  Code:") + String(httpCode) + " PayLoad:" + String(payload), INFO);    //Print request response payload
+      } else {
+        message(String(" -  Code:") + String(httpCode) + " PayLoad:" + String(payload), DEBUG);    //Print request response payload
+      }
+    }
+
+    httpClient.end();
+    message("-------", DEBUG);
   } else {
-    message(String(" - ") + String(httpCode) + ' ' + payload, DEBUG);    //Print request response payload
+    message("No internet access", DEBUG);
   }
-  httpClient.end();
 }
 
 /**
