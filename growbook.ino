@@ -55,7 +55,7 @@
 #define   NTP_TIME_OFFSET_SEC               10800                   // Time offset
 #define   NTP_UPDATE_INTERVAL_MS            60000                   // NTP Update interval - 1 min
 
-#define   UART_BAUD_RATE                    9600 //115200 //921600
+#define   UART_BAUD_RATE                    921600
 
 #define   LOOP_DELAY                        50                      // Wait each loop for LOOP_DELAY
 // Unchangeable settings
@@ -129,6 +129,9 @@ NTPClient           timeClient(ntpUDP, NTP_SERVER, NTP_TIME_OFFSET_SEC, NTP_UPDA
 HTTPClient          httpClient;    //Declare object of class HTTPClient
 DHTesp              dht;
 float               hydro_value_prev = 0;
+
+unsigned long       boot_time = 0;
+unsigned long       uptime = 0;
 /**
  ****************************************************************************************************
 */
@@ -139,6 +142,47 @@ float   getTemperature(const int dev = 0);
  ****************************************************************************************************
  ****************************************************************************************************
 */
+
+
+struct bootflags
+{
+  unsigned char raw_rst_cause : 4;
+  unsigned char raw_bootdevice : 4;
+  unsigned char raw_bootmode : 4;
+  unsigned char rst_normal_boot : 1;
+  unsigned char rst_reset_pin : 1;
+  unsigned char rst_watchdog : 1;
+  unsigned char bootdevice_ram : 1;
+  unsigned char bootdevice_flash : 1;
+};
+
+struct bootflags bootmode_detect(void) {
+  int reset_reason, bootmode;
+  asm (
+    "movi %0, 0x60000600\n\t"
+    "movi %1, 0x60000200\n\t"
+    "l32i %0, %0, 0x114\n\t"
+    "l32i %1, %1, 0x118\n\t"
+    : "+r" (reset_reason), "+r" (bootmode) /* Outputs */
+    : /* Inputs (none) */
+    : "memory" /* Clobbered */
+  );
+
+  struct bootflags flags;
+
+  flags.raw_rst_cause = (reset_reason & 0xF);
+  flags.raw_bootdevice = ((bootmode >> 0x10) & 0x7);
+  flags.raw_bootmode = ((bootmode >> 0x1D) & 0x7);
+
+  flags.rst_normal_boot = flags.raw_rst_cause == 0x1;
+  flags.rst_reset_pin = flags.raw_rst_cause == 0x2;
+  flags.rst_watchdog = flags.raw_rst_cause == 0x4;
+
+  flags.bootdevice_ram = flags.raw_bootdevice == 0x1;
+  flags.bootdevice_flash = flags.raw_bootdevice == 0x3;
+
+  return flags;
+}
 
 /**
   Setup the controller
@@ -157,16 +201,51 @@ void setup(void) {
   Serial.begin(UART_BAUD_RATE);
   Serial.println("");
   message("Serial communication started.", PASS);
+
+  rst_info* rinfo = ESP.getResetInfoPtr();
+
+  Serial.printf("rinfo->reason:   %d, %s\n", rinfo->reason, ESP.getResetReason().c_str());
+  Serial.printf("rinfo->exccause: %d\n", rinfo->exccause);
+  Serial.printf("rinfo->epc1:     %d\n", rinfo->epc1);
+  Serial.printf("rinfo->epc2:     %d\n", rinfo->epc2);
+  Serial.printf("rinfo->epc3:     %d\n", rinfo->epc3);
+  Serial.printf("rinfo->excvaddr: %d\n", rinfo->excvaddr);
+  Serial.printf("rinfo->depc:     %d\n", rinfo->depc);
+
+  struct bootflags bflags = bootmode_detect();
+
+  Serial.printf("\nbootflags.raw_rst_cause: %d\n", bflags.raw_rst_cause);
+  Serial.printf("bootflags.raw_bootdevice: %d\n", bflags.raw_bootdevice);
+  Serial.printf("bootflags.raw_bootmode: %d\n", bflags.raw_bootmode);
+
+  Serial.printf("bootflags.rst_normal_boot: %d\n", bflags.rst_normal_boot);
+  Serial.printf("bootflags.rst_reset_pin: %d\n", bflags.rst_reset_pin);
+  Serial.printf("bootflags.rst_watchdog: %d\n", bflags.rst_watchdog);
+
+  Serial.printf("bootflags.bootdevice_ram: %d\n", bflags.bootdevice_ram);
+  Serial.printf("bootflags.bootdevice_flash: %d\n", bflags.bootdevice_flash);
+
+  if (bflags.raw_bootdevice == 1) {
+    Serial.println("\n\n\n!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n!!!!!!!!! The sketch has just been uploaded over the serial link to the ESP8266");
+    Serial.println("Beware: the device will freeze after it reboots in the following step.");
+    Serial.println("It will be necessary to manually reset the device or to power cycle it");
+    Serial.println("and thereafter the ESP8266 will continuously reboot.\n");
+    //      Serial.println("\n\nRebooting with ESP.restart()");
+    //      ESP.restart();
+    delay(2000);
+  } else {
+    Serial.println("\n\n\n\n\n\n\n\n\n\n\nRESET_FOUND\n\n\n\n\n\n\n\n\n\n\n");
+  }
+
   message("Starting SPIFFS....", INFO);
   SPIFFS.begin();
   message("SPIFFS startted.", PASS);
   //message("Compile SPIFFS", INFO);
   //  SPIFFS.format();
 
-  dht.setup(DHTpin, DHTesp::AUTO_DETECT); //for DHT11
-  //dht.setup(DHTpin, DHTesp::DHT22); //for DHT22
-
-  Serial.println(build_index());
+  dht.setup(DHTpin, DHTesp::AUTO_DETECT);   // dht.setup(DHTpin, DHTesp::DHT22); //for DHT22
+  message(String("DHT") + String(dht.getModel()) + String(dht.getModel()), INFO);
+  //Serial.println(build_index());
   wifi_connect();
   server_start();
   timeClient.begin();
@@ -176,6 +255,12 @@ void setup(void) {
   timeClient.forceUpdate();
   message(" ----> All started <----", PASS);
   print_all_info();
+
+
+  ESP.wdtEnable(10000);
+  ESP.wdtDisable();
+
+  //while (1){};
 }
 
 /**
@@ -184,9 +269,10 @@ void setup(void) {
 */
 
 void loop(void) {
+
   // WEB SERVER
   server.handleClient();
-
+  ESP.wdtFeed();
   // WIFI CHECK
   if (WiFi.status() != WL_CONNECTED) {
     internet_access = 0;
@@ -201,6 +287,7 @@ void loop(void) {
   //------------------------------------------------------------------------------------------------------------
   // SENSORS
   if (counter % CHECK_TMP == 0) {
+    message("Start Sensors.", DEBUG);
     sensorsSingleLog = "";
     sonsors_dallas();
     sensors_hydrometer();
@@ -209,7 +296,7 @@ void loop(void) {
     //delay(dht.getMinimumSamplingPeriod());
     sonsors_dht();
     message(sensorsSingleLog, INFO);
-
+    message("Finish Sensors.", DEBUG);
   }
 
 
@@ -217,9 +304,12 @@ void loop(void) {
   if (CHECK_INTERNET_CONNECT) {
     if (counter % CHECK_INTERNET_CONNECTIVITY_CTR == 0 || !internet_access)
     {
+      bool _ia = internet_access;
       internet_access = Ping.ping(pingServer, 2);
-      //int avg_time_ms = Ping.averageTime();
-      //message("Ping result is " + String(internet_access) + " avg_time_ms:" + String(avg_time_ms), INFO);
+      if (!_ia) {
+        message("Ping result is " + String(internet_access) + " avg_time_ms:" + String(Ping.averageTime()), INFO);
+      }
+
       if (!internet_access) {
         internet_access_failures++;
         delay(500);
@@ -243,6 +333,10 @@ void loop(void) {
     if (internet_access) {
       message("Starting update the time...", DEBUG);
       update_time();
+      if ( boot_time == 0 && timeClient.getEpochTime() > INCORRECT_EPOCH ) {
+        message("Update boot_time = " + String(timeClient.getEpochTime()), INFO);
+        boot_time = timeClient.getEpochTime();
+      }
     }
   }
   //ESP.deepSleep(sleepTimeS * 1000000, RF_DEFAULT);
@@ -252,6 +346,7 @@ void loop(void) {
     counter = 0;
     //printTemperatureToSerial();
   }
+  uptime = timeClient.getEpochTime() - boot_time;
 }
 
 bool sensors_hydrometer()
@@ -346,16 +441,20 @@ void growBookPostEvent(String value, String sensor, String type, String value3)
     String note = "";
     String url = String(GROWBOOK_URL) + "event/new?type=" + String(type);
     httpClient.begin(client, url);
-    httpClient.setTimeout(2200);
+    httpClient.setTimeout(10000);
     httpClient.addHeader("Content-Type", "application/x-www-form-urlencoded");  //Specify content-type header
     String postData;
-    postData = "value=" + urlencode(value) + "&sensor_id=" + urlencode(sensor) + "&note=" + urlencode(note) + "&plant_id=" + urlencode(WiFi.hostname());
+    postData = String("uptime=") + urlencode(String(uptime)) + "&value=" + urlencode(value) + "&sensor_id=" + urlencode(sensor) + "&note=" + urlencode(note) + "&plant_id=" + urlencode(WiFi.hostname());
     if ( value3 != "" ) {
       postData += "&value3=" + urlencode(value3);
     }
     postData = (postData) + "&type=" + type;
     message(String("postData:") + postData, DEBUG); // Print HTTP return code
+    ESP.wdtEnable(20000);
+    ESP.wdtFeed();
     int httpCode = httpClient.POST(postData); // Send the request
+    ESP.wdtFeed();
+    ESP.wdtDisable();
     String payload = httpClient.getString(); // Get the response payload
     //  if ( httpCode == HTTP_CODE_OK) {
     if (httpCode < 0) {
@@ -450,7 +549,7 @@ void message(const String msg, const enum LogType lt) {
       Serial.println(msg);
     }
     else {
-      Serial.println(String(timeClient.getEpochTime()) + " : " + timeClient.getFormattedTime() + " : " + String(stringFromLogType(lt)) + " : " + msg);
+      Serial.println(String(uptime) + ":" + String(timeClient.getEpochTime()) + " : " + timeClient.getFormattedTime() + " : " + String(stringFromLogType(lt)) + " : " + msg);
     }
   }
 }
