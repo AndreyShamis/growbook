@@ -134,11 +134,11 @@ struct bootflags bootmode_detect(void) {
 /*******************************************************************************************************/
 
 String              TypeNames[4] = {
-  "App%5CEntity%5CEvents%5CEventHumidity", 
-  "App%5CEntity%5CEvents%5CEventTemperature", 
-  "App%5CEntity%5CEvents%5CEventSoilHydrometer", 
+  "App%5CEntity%5CEvents%5CEventHumidity",
+  "App%5CEntity%5CEvents%5CEventTemperature",
+  "App%5CEntity%5CEvents%5CEventSoilHydrometer",
   "App%5CEntity%5CEvents%5CEventLight"
-  };
+};
 const char          *ssid                     = WIFI_SSID;
 const char          *password                 = WIFI_PASS;
 int                 counter                   = 0;
@@ -279,26 +279,20 @@ void loop(void) {
     }
   }
 
-  if (counter % CHECK_TMP/2 == 0) {
-    message("----------------------------------", DEBUG);
-    //growBookPostValue("soil_medium", "soil");
-    sensors_light();
-    message(sensorsSingleLog, INFO);
-    message("------------------------- Sensors.", DEBUG);
-  }
   //------------------------------------------------------------------------------------------------------------
   // SENSORS
   if (counter % CHECK_TMP == 0) {
-    message("Start Sensors.", DEBUG);
     sensorsSingleLog = "";
     sonsors_dallas();
+    delay(10);
     sensors_hydrometer();
+    delay(20);
     sonsors_dht();
+    delay(30);
     sensors_light();
+    delay(40);
     message(sensorsSingleLog, INFO);
-    message("Finish Sensors.", DEBUG);
   }
-
 
   // CEONNECTIVITY - CHECK PING
   if (CHECK_INTERNET_CONNECT) {
@@ -369,7 +363,7 @@ bool sensors_hydrometer()
 
 */
 bool sensors_light() {
-  
+
   int digitalVal = digitalRead(LIGHT_SENSOR_D0);    // Read the digital interface
   bool change_found = false;
   if (digitalVal == HIGH) {
@@ -387,20 +381,22 @@ bool sensors_light() {
   }
   sensorsSingleLog += " LIGHT IS " + String(light_enabled) + " ";
   //if (change_found) {
-    String serail = "LDR_" + String(WiFi.hostname()) + String("_" + String(LIGHT_SENSOR_D0));
-    growBookPostValue("light", String(light_enabled));
-    //growBookPostEvent(String(light_enabled), serail, TypeNames[LIGHT], "");
- /// }
+  String serail = "LDR_" + String(WiFi.hostname()) + String("_" + String(LIGHT_SENSOR_D0));
+  growBookPostValue("light", String(light_enabled));
+  //growBookPostEvent(String(light_enabled), serail, TypeNames[LIGHT], "");
+  /// }
   return true;
 }
 
 bool sonsors_dallas() {
   sensorsSingleLog = "Temperature:";
-  for (int i = 0; i < sensor.getDeviceCount(); i++) {
+  int devices_count = sensor.getDeviceCount();
+  for (int i = 0; i < devices_count; i++) {
     float prevTmp = current_temp[i];
     float tmp_1 = 0;
     float tmp_2 = 1;
     current_temp[i] = getTemperature(i);
+    float sum_tmp = 0;
     if (prevTmp != current_temp[i]) {
       short int _c = 0;
       while (tmp_1 != tmp_2 && _c < 10) {
@@ -415,12 +411,19 @@ bool sonsors_dallas() {
         }
       }
       current_temp[i] = tmp_1;
+      sum_tmp += current_temp[i];
     }
+
     float tmp_diff = prevTmp - current_temp[i];
     sensorsSingleLog += " \t " + String(i) + ": " + String(current_temp[i]) + " C \t | ";
     if (fabs(tmp_diff) > MIN_TEMPERATURE_TH) {
       growBookPostEvent(String(current_temp[i]), String(getAddressString(insideThermometer[i])), TypeNames[TEMPERATURE], "");
     }
+    if (devices_count) {
+      sum_tmp = sum_tmp / devices_count;
+      growBookPostValue("temperature", String(sum_tmp));
+    }
+
   }
   return true;
 }
@@ -435,6 +438,7 @@ bool sonsors_dht() {
   if (fabs(current_humidity - humidity)  > MIN_HUMIDITY_TH) {
     String model = String("DHT") + String(dht.getModel()) + String(dht.getModel());
     growBookPostEvent(String(humidity), model + "_-_" + String(WiFi.hostname()) + String("_-_0"), TypeNames[HUMIDITY], String(heat_index));
+    growBookPostValue("humidity", String(humidity));
   }
   current_humidity = humidity;
 
