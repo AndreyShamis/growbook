@@ -15,7 +15,6 @@
 */
 
 #include <NTPClient.h>
-//#include <WiFiUdp.h>
 #include <Wire.h>
 #include <ESP8266WiFi.h>
 #include <ESP8266Ping.h>
@@ -28,40 +27,39 @@
 #include "DHTesp.h"
 #include <ESP8266HTTPClient.h>
 
-/**
- ****************************************************************************************************
-*/
-
+/*******************************************************************************************************/
 // WiFi settings
 #define   WIFI_SSID                         "RadiationG"
 #define   WIFI_PASS                         "polkalol"
-
-#define   MESSAGE_OPT                       1
-// Custom settings
-#define   CHECK_INTERNET_CONNECT            1                       // For disable internet connectiviy check use 0
-#define   RECONNECT_AFTER_FAILS             100                     // 20 = ~1 min -> 100 =~ 4min
-
-// Thermometer and wire settings
-#define   ONE_WIRE_BUS                      D4                      // D4 2
-#define   DHTpin                            D5                      // 14 D5 of NodeMCU is GPIO14
-#define   HYDROMETER_PIN                    A0
-#define   HYDROMETER_D0_PIN                 D1
-#define   TEMPERATURE_PRECISION             12                      // Possible value 9-12
-
-// DHT Settings
 
 // NTP settings
 #define   NTP_SERVER                        "1.asia.pool.ntp.org"   // Pool of ntp server http://www.pool.ntp.org/zone/asia
 #define   NTP_TIME_OFFSET_SEC               10800                   // Time offset
 #define   NTP_UPDATE_INTERVAL_MS            60000                   // NTP Update interval - 1 min
 
-#define   UART_BAUD_RATE                    921600
-
-#define   LOOP_DELAY                        50                      // Wait each loop for LOOP_DELAY
 // Unchangeable settings
 #define   INCORRECT_EPOCH                   200000                  // Minimum value for time epoch
-#define   NUMBER_OF_SENSORS                 4
 #define   HIGH_TEMPERATURE                  70                      // If temperature bigger of this value we recheck it again
+
+/*******************************************************************************************************/
+// Thermometer, hydrometer, humidity light sensor and wire settings
+#define   HYDROMETER_PIN                    A0
+#define   LIGHT_SENSOR_D0                   D0
+#define   HYDROMETER_D0_PIN                 D1
+#define   ONE_WIRE_BUS                      D4                      // D4 2
+#define   DHT_HUMIDITY_PIN                  D5                      // 14 D5 of NodeMCU is GPIO14
+
+#define   TEMPERATURE_PRECISION             12                      // Possible value 9-12
+#define   NUMBER_OF_SENSORS                 4
+
+// UART
+#define   UART_BAUD_RATE                    115200 //921600
+
+// GENERAL
+#define   LOOP_DELAY                        50                      // Wait each loop for LOOP_DELAY
+#define   CHECK_INTERNET_CONNECT            1                       // For disable internet connectiviy check use 0
+#define   RECONNECT_AFTER_FAILS             100                     // 20 = ~1 min -> 100 =~ 4min
+#define   MESSAGE_OPT                       1
 
 #define   MIN_TEMPERATURE_TH                0.09                    // Minimal threshhold for temperature to update
 #define   MIN_HUMIDITY_TH                   0.1                     // Minimal threshhold for humidity to update
@@ -74,14 +72,10 @@
 #define NTP_UPDATE_COUNTER                  (COUNTER_IN_LOOP_SECOND*60*3)
 #define CHECK_INTERNET_CONNECTIVITY_CTR     (COUNTER_IN_LOOP_SECOND*120)
 
+#define GROWBOOK_URL                        "http://192.168.1.206:8082/"
+//#define GROWBOOK_URL                        "http://growbook.anshamis.com/"
 
-//#define GROWBOOK_URL                        "http://192.168.1.206:8082/"
-#define GROWBOOK_URL                        "http://growbook.anshamis.com/"
-
-/**
- ****************************************************************************************************
-*/
-
+/*******************************************************************************************************/
 enum LogType {
   INFO      = 0,
   WARNING   = 1,
@@ -96,52 +90,8 @@ enum SensorType {
   HUMIDITY = 0,
   TEMPERATURE = 1,
   HYDROMETER = 2,
+  LIGHT = 3,
 };
-
-String TypeNames[3] = {"App%5CEntity%5CEvents%5CEventHumidity", "App%5CEntity%5CEvents%5CEventTemperature", "App%5CEntity%5CEvents%5CEventSoilHydrometer"};
-
-/**
- ****************************************************************************************************
-*/
-const char          *ssid                     = WIFI_SSID;
-const char          *password                 = WIFI_PASS;
-int                 counter                   = 0;
-int                 last_disable_epoch        = 0;
-bool                internet_access           = 0;
-unsigned short      internet_access_failures  = 0;
-
-String              sensorsSingleLog          = "";
-/**
- ****************************************************************************************************
-*/
-OneWire             oneWire(ONE_WIRE_BUS);
-DallasTemperature   sensor(&oneWire);
-ESP8266WebServer    server(80);
-DeviceAddress       insideThermometer[NUMBER_OF_SENSORS];       // arrays to hold device address
-WiFiUDP             ntpUDP;
-IPAddress           pingServer (8, 8, 8, 8);    // Ping server
-float               current_temp[NUMBER_OF_SENSORS];
-float               current_humidity = 0;
-/**
-    You can specify the time server pool and the offset (in seconds, can be changed later with setTimeOffset()).
-    Additionaly you can specify the update interval (in milliseconds, can be changed using setUpdateInterval()). */
-NTPClient           timeClient(ntpUDP, NTP_SERVER, NTP_TIME_OFFSET_SEC, NTP_UPDATE_INTERVAL_MS);
-HTTPClient          httpClient;    //Declare object of class HTTPClient
-DHTesp              dht;
-float               hydro_value_prev = 0;
-
-unsigned long       boot_time = 0;
-unsigned long       uptime = 0;
-/**
- ****************************************************************************************************
-*/
-//ADC_MODE(ADC_VCC);              // This disable ADC read!
-float   getTemperature(const int dev = 0);
-/**
- ****************************************************************************************************
- ****************************************************************************************************
- ****************************************************************************************************
-*/
 
 
 struct bootflags
@@ -169,20 +119,63 @@ struct bootflags bootmode_detect(void) {
   );
 
   struct bootflags flags;
-
   flags.raw_rst_cause = (reset_reason & 0xF);
   flags.raw_bootdevice = ((bootmode >> 0x10) & 0x7);
   flags.raw_bootmode = ((bootmode >> 0x1D) & 0x7);
-
   flags.rst_normal_boot = flags.raw_rst_cause == 0x1;
   flags.rst_reset_pin = flags.raw_rst_cause == 0x2;
   flags.rst_watchdog = flags.raw_rst_cause == 0x4;
-
   flags.bootdevice_ram = flags.raw_bootdevice == 0x1;
   flags.bootdevice_flash = flags.raw_bootdevice == 0x3;
 
   return flags;
 }
+
+/*******************************************************************************************************/
+
+String              TypeNames[4] = {
+  "App%5CEntity%5CEvents%5CEventHumidity", 
+  "App%5CEntity%5CEvents%5CEventTemperature", 
+  "App%5CEntity%5CEvents%5CEventSoilHydrometer", 
+  "App%5CEntity%5CEvents%5CEventLight"
+  };
+const char          *ssid                     = WIFI_SSID;
+const char          *password                 = WIFI_PASS;
+int                 counter                   = 0;
+int                 last_disable_epoch        = 0;
+bool                internet_access           = 0;
+unsigned short      internet_access_failures  = 0;
+String              sensorsSingleLog          = "";
+/**
+ ****************************************************************************************************
+*/
+OneWire             oneWire(ONE_WIRE_BUS);
+DallasTemperature   sensor(&oneWire);
+ESP8266WebServer    server(80);
+DeviceAddress       insideThermometer[NUMBER_OF_SENSORS];       // arrays to hold device address
+WiFiUDP             ntpUDP;
+IPAddress           pingServer (8, 8, 8, 8);    // Ping server
+float               current_temp[NUMBER_OF_SENSORS];
+float               current_humidity = 0;
+/**
+    You can specify the time server pool and the offset (in seconds, can be changed later with setTimeOffset()).
+    Additionaly you can specify the update interval (in milliseconds, can be changed using setUpdateInterval()). */
+NTPClient           timeClient(ntpUDP, NTP_SERVER, NTP_TIME_OFFSET_SEC, NTP_UPDATE_INTERVAL_MS);
+HTTPClient          httpClient;    //Declare object of class HTTPClient
+DHTesp              dht;
+float               hydro_value_prev = 0;
+bool                light_enabled = false;
+unsigned long       boot_time = 0;
+unsigned long       uptime = 0;
+
+/*******************************************************************************************************/
+
+//ADC_MODE(ADC_VCC);              // This disable ADC read!
+float   getTemperature(const int dev = 0);
+/**
+ ****************************************************************************************************
+ ****************************************************************************************************
+*/
 
 /**
   Setup the controller
@@ -190,6 +183,7 @@ struct bootflags bootmode_detect(void) {
 void setup(void) {
   //ADC_MODE(ADC_VCC);
   //pinMode(LIGHT_SENSOR_PIN, INPUT);
+  pinMode(LIGHT_SENSOR_D0, INPUT);
   if (CHECK_INTERNET_CONNECT) {
     internet_access = 0;
   }
@@ -243,7 +237,7 @@ void setup(void) {
   //message("Compile SPIFFS", INFO);
   //  SPIFFS.format();
 
-  dht.setup(DHTpin, DHTesp::AUTO_DETECT);   // dht.setup(DHTpin, DHTesp::DHT22); //for DHT22
+  dht.setup(DHT_HUMIDITY_PIN, DHTesp::AUTO_DETECT);   // dht.setup(DHT_HUMIDITY_PIN, DHTesp::DHT22); //for DHT22
   message(String("DHT") + String(dht.getModel()) + String(dht.getModel()), INFO);
   //Serial.println(build_index());
   wifi_connect();
@@ -260,7 +254,6 @@ void setup(void) {
   ESP.wdtEnable(10000);
   ESP.wdtDisable();
 
-  //while (1){};
 }
 
 /**
@@ -269,6 +262,8 @@ void setup(void) {
 */
 
 void loop(void) {
+
+
 
   // WEB SERVER
   server.handleClient();
@@ -284,6 +279,13 @@ void loop(void) {
     }
   }
 
+  if (counter % CHECK_TMP/2 == 0) {
+    message("----------------------------------", DEBUG);
+    //growBookPostValue("soil_medium", "soil");
+    sensors_light();
+    message(sensorsSingleLog, INFO);
+    message("------------------------- Sensors.", DEBUG);
+  }
   //------------------------------------------------------------------------------------------------------------
   // SENSORS
   if (counter % CHECK_TMP == 0) {
@@ -291,10 +293,8 @@ void loop(void) {
     sensorsSingleLog = "";
     sonsors_dallas();
     sensors_hydrometer();
-
-    //message(prinrt_tmp, INFO);
-    //delay(dht.getMinimumSamplingPeriod());
     sonsors_dht();
+    sensors_light();
     message(sensorsSingleLog, INFO);
     message("Finish Sensors.", DEBUG);
   }
@@ -302,8 +302,7 @@ void loop(void) {
 
   // CEONNECTIVITY - CHECK PING
   if (CHECK_INTERNET_CONNECT) {
-    if (counter % CHECK_INTERNET_CONNECTIVITY_CTR == 0 || !internet_access)
-    {
+    if (counter % CHECK_INTERNET_CONNECTIVITY_CTR == 0 || !internet_access) {
       bool _ia = internet_access;
       internet_access = Ping.ping(pingServer, 2);
       if (!_ia) {
@@ -313,8 +312,7 @@ void loop(void) {
       if (!internet_access) {
         internet_access_failures++;
         delay(500);
-      }
-      else {
+      } else {
         internet_access_failures = 0;
       }
     }
@@ -329,7 +327,7 @@ void loop(void) {
     print_all_info();
 
   }
-  if (counter % NTP_UPDATE_COUNTER == 0) {
+  if (counter % NTP_UPDATE_COUNTER == 0 || boot_time < INCORRECT_EPOCH) {
     if (internet_access) {
       message("Starting update the time...", DEBUG);
       update_time();
@@ -364,8 +362,38 @@ bool sensors_hydrometer()
     message("Hudrometer bad value: " + String(hydro_value), DEBUG);
   }
   hydro_value_prev = hydro_value;
-
+  return true;
 }
+
+/**
+
+*/
+bool sensors_light() {
+  
+  int digitalVal = digitalRead(LIGHT_SENSOR_D0);    // Read the digital interface
+  bool change_found = false;
+  if (digitalVal == HIGH) {
+    if (light_enabled) {
+      change_found = true;
+      message("Light is OFF", DEBUG);
+    }
+    light_enabled = false;
+  } else {
+    if (!light_enabled) {
+      change_found = true;
+      message("Light is ON", DEBUG);
+    }
+    light_enabled = true;
+  }
+  sensorsSingleLog += " LIGHT IS " + String(light_enabled) + " ";
+  //if (change_found) {
+    String serail = "LDR_" + String(WiFi.hostname()) + String("_" + String(LIGHT_SENSOR_D0));
+    growBookPostValue("light", String(light_enabled));
+    //growBookPostEvent(String(light_enabled), serail, TypeNames[LIGHT], "");
+ /// }
+  return true;
+}
+
 bool sonsors_dallas() {
   sensorsSingleLog = "Temperature:";
   for (int i = 0; i < sensor.getDeviceCount(); i++) {
@@ -441,20 +469,21 @@ void growBookPostEvent(String value, String sensor, String type, String value3)
     String note = "";
     String url = String(GROWBOOK_URL) + "event/new?type=" + String(type);
     httpClient.begin(client, url);
-    httpClient.setTimeout(10000);
+    httpClient.setTimeout(6900);
     httpClient.addHeader("Content-Type", "application/x-www-form-urlencoded");  //Specify content-type header
     String postData;
-    postData = String("uptime=") + urlencode(String(uptime)) + "&value=" + urlencode(value) + "&sensor_id=" + urlencode(sensor) + "&note=" + urlencode(note) + "&plant_id=" + urlencode(WiFi.hostname());
+    postData = String("rssi=") + urlencode(String(WiFi.RSSI())) + "&uptime=" + urlencode(String(uptime)) + "&value=" + urlencode(value) + "&sensor_id=" + urlencode(sensor) + "&note=" + urlencode(note) + "&plant_id=" + urlencode(WiFi.hostname());
     if ( value3 != "" ) {
       postData += "&value3=" + urlencode(value3);
     }
     postData = (postData) + "&type=" + type;
     message(String("postData:") + postData, DEBUG); // Print HTTP return code
-    ESP.wdtEnable(20000);
+
+    ESP.wdtDisable();
     ESP.wdtFeed();
     int httpCode = httpClient.POST(postData); // Send the request
     ESP.wdtFeed();
-    ESP.wdtDisable();
+    ESP.wdtEnable(200000);
     String payload = httpClient.getString(); // Get the response payload
     //  if ( httpCode == HTTP_CODE_OK) {
     if (httpCode < 0) {
@@ -475,6 +504,45 @@ void growBookPostEvent(String value, String sensor, String type, String value3)
   }
 }
 
+/**
+
+*/
+void growBookPostValue(String key, String value)
+{
+  if ((CHECK_INTERNET_CONNECT && internet_access) || !CHECK_INTERNET_CONNECT) {
+
+    WiFiClient client;
+    String url = String(GROWBOOK_URL) + "plant/cli/" + urlencode(WiFi.hostname()) + "/" + urlencode(key) + "/" + urlencode(value);
+    httpClient.begin(client, url);
+    httpClient.setTimeout(2000);
+    httpClient.addHeader("Content-Type", "application/x-www-form-urlencoded");  //Specify content-type header
+    String postData;
+    postData = String("key=") + urlencode(key) + "&value=" + urlencode(value);
+    message(String("postData:") + postData, DEBUG); // Print HTTP return code
+    ESP.wdtDisable();
+    ESP.wdtFeed();
+    int httpCode = httpClient.POST(postData); // Send the request
+    ESP.wdtFeed();
+    ESP.wdtEnable(5000);
+    String payload = httpClient.getString(); // Get the response payload
+    //  if ( httpCode == HTTP_CODE_OK) {
+    if (httpCode < 0) {
+      message(String(" !  -  Code:") + String(httpCode) + " " + String(" \t Message :") + httpClient.errorToString(httpCode) , DEBUG);
+    }
+    else {
+      if (httpCode == HTTP_CODE_FOUND || httpCode == HTTP_CODE_OK) {
+        message(String(" +  Code:") + String(httpCode) + " PayLoad:" + String(payload), INFO);    //Print request response payload
+      } else {
+        message(String(" -  Code:") + String(httpCode) + " PayLoad:" + String(payload), DEBUG);    //Print request response payload
+      }
+    }
+
+    httpClient.end();
+    message("-------", DEBUG);
+  } else {
+    message("No internet access", DEBUG);
+  }
+}
 /**
    Reconnect to wifi - in success enable all services and update time
 */
