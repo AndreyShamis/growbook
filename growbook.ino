@@ -39,8 +39,8 @@
 
 // Unchangeable settings
 #define   INCORRECT_EPOCH                   200000                  // Minimum value for time epoch
-#define   HIGH_TEMPERATURE                  70                      // If temperature bigger of this value we recheck it again
-
+#define   HIGH_TEMPERATURE                  125                      // If temperature bigger of this value we recheck it again
+#define   LOW_TEMPERATURE                   -55
 /*******************************************************************************************************/
 // Thermometer, hydrometer, humidity light sensor and wire settings
 #define   HYDROMETER_PIN                    A0
@@ -68,7 +68,9 @@
    For example loop_delay=10, counter sec will be 100 , when (counter%100 == 0) happens every second
 */
 #define COUNTER_IN_LOOP_SECOND              (int)(1000/LOOP_DELAY)
-#define CHECK_TMP                           (COUNTER_IN_LOOP_SECOND*10) //(COUNTER_IN_LOOP_SECOND*3)
+#define UPTIME_CALL_SERVER_COUNTER          (COUNTER_IN_LOOP_SECOND*5)
+#define CALL_SERVER_COUNTER                 (COUNTER_IN_LOOP_SECOND*10)
+#define CHECK_SENSORS                       (COUNTER_IN_LOOP_SECOND*20) //(COUNTER_IN_LOOP_SECOND*3)
 #define NTP_UPDATE_COUNTER                  (COUNTER_IN_LOOP_SECOND*60*3)
 #define CHECK_INTERNET_CONNECTIVITY_CTR     (COUNTER_IN_LOOP_SECOND*120)
 
@@ -167,7 +169,7 @@ float               hydro_value_prev = 0;
 bool                light_enabled = false;
 unsigned long       boot_time = 0;
 unsigned long       uptime = 0;
-
+WiFiClient          wifi_client;
 /*******************************************************************************************************/
 
 //ADC_MODE(ADC_VCC);              // This disable ADC read!
@@ -262,9 +264,6 @@ void setup(void) {
 */
 
 void loop(void) {
-
-
-
   // WEB SERVER
   server.handleClient();
   ESP.wdtFeed();
@@ -279,9 +278,8 @@ void loop(void) {
     }
   }
 
-  //------------------------------------------------------------------------------------------------------------
-  // SENSORS
-  if (counter % CHECK_TMP == 0) {
+  // SENSORS  ---------------------------------------------------------------------------------------
+  if (counter % CHECK_SENSORS == 0) {
     sensorsSingleLog = "";
     sonsors_dallas();
     delay(10);
@@ -292,6 +290,17 @@ void loop(void) {
     sensors_light();
     delay(40);
     message(sensorsSingleLog, INFO);
+  } else {
+
+    if (counter % CALL_SERVER_COUNTER == 0 && internet_access) {
+      message("HERE");
+      growBookPostValue("light", String(light_enabled));
+    } else {
+      if (uptime > 30 && counter % UPTIME_CALL_SERVER_COUNTER == 0 && internet_access) {
+        message("HERE 2");
+        growBookPostValue("uptime", String(uptime));
+      }
+    }
   }
 
   // CEONNECTIVITY - CHECK PING
@@ -351,6 +360,7 @@ bool sensors_hydrometer()
   String model = "HYDRO_" + String(HYDROMETER_PIN) + "_";
   if (hydro_value < 100 && hydro_value > 0) {
     growBookPostEvent(String(hydro_value), model + "_-_" + String(WiFi.hostname()) + String("_-_0"), TypeNames[HYDROMETER], "");
+    growBookPostValue("hydrometer", String(hydro_value));
   }
   else {
     message("Hudrometer bad value: " + String(hydro_value), DEBUG);
@@ -415,15 +425,18 @@ bool sonsors_dallas() {
     }
 
     float tmp_diff = prevTmp - current_temp[i];
-    sensorsSingleLog += " \t " + String(i) + ": " + String(current_temp[i]) + " C \t | ";
-    if (fabs(tmp_diff) > MIN_TEMPERATURE_TH) {
-      growBookPostEvent(String(current_temp[i]), String(getAddressString(insideThermometer[i])), TypeNames[TEMPERATURE], "");
+    if (current_temp[i] > LOW_TEMPERATURE && current_temp[i] < HIGH_TEMPERATURE) {
+      sensorsSingleLog += " \t " + String(i) + ": " + String(current_temp[i]) + " C \t | ";
+      if (fabs(tmp_diff) > MIN_TEMPERATURE_TH) {
+        growBookPostEvent(String(current_temp[i]), String(getAddressString(insideThermometer[i])), TypeNames[TEMPERATURE], "");
+      }
+      if (devices_count) {
+        sum_tmp = sum_tmp / devices_count;
+        growBookPostValue("temperature", String(sum_tmp));
+      }
+    } else {
+      growBookPostValue("BAD_TEMERATURE_VALUE_" + String(getAddressString(insideThermometer[i])), String(current_temp[i]));
     }
-    if (devices_count) {
-      sum_tmp = sum_tmp / devices_count;
-      growBookPostValue("temperature", String(sum_tmp));
-    }
-
   }
   return true;
 }
@@ -445,35 +458,12 @@ bool sonsors_dht() {
   return true;
 }
 
-String urlencode(const String &s) {
-  static const char lookup[] = "0123456789abcdef";
-  String result;
-  size_t len = s.length();
-
-  for (size_t i = 0; i < len; i++) {
-    const char c = s[i];
-    if (('0' <= c && c <= '9') || ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z') || (c == '-' || c == '_' || c == '.' || c == '~')) {
-      result += c;
-    } else {
-      result += "%" + String(lookup[(c & 0xf0) >> 4]) + String(lookup[c & 0x0f]);
-    }
-  }
-
-  return result;
-}
-
-/**
-
-*/
-void growBookPostEvent(String value, String sensor, String type, String value3)
-{
+void growBookPostEvent(String value, String sensor, String type, String value3) {
   if ((CHECK_INTERNET_CONNECT && internet_access) || !CHECK_INTERNET_CONNECT) {
-
-    WiFiClient client;
     String note = "";
     String url = String(GROWBOOK_URL) + "event/new?type=" + String(type);
-    httpClient.begin(client, url);
-    httpClient.setTimeout(6900);
+    httpClient.begin(wifi_client, url);
+    httpClient.setTimeout(5000);
     httpClient.addHeader("Content-Type", "application/x-www-form-urlencoded");  //Specify content-type header
     String postData;
     postData = String("rssi=") + urlencode(String(WiFi.RSSI())) + "&uptime=" + urlencode(String(uptime)) + "&value=" + urlencode(value) + "&sensor_id=" + urlencode(sensor) + "&note=" + urlencode(note) + "&plant_id=" + urlencode(WiFi.hostname());
@@ -482,27 +472,23 @@ void growBookPostEvent(String value, String sensor, String type, String value3)
     }
     postData = (postData) + "&type=" + type;
     message(String("postData:") + postData, DEBUG); // Print HTTP return code
-
     ESP.wdtDisable();
     ESP.wdtFeed();
     int httpCode = httpClient.POST(postData); // Send the request
     ESP.wdtFeed();
-    ESP.wdtEnable(200000);
-    String payload = httpClient.getString(); // Get the response payload
-    //  if ( httpCode == HTTP_CODE_OK) {
+    ESP.wdtEnable(5000);
     if (httpCode < 0) {
       message(String(" !  -  Code:") + String(httpCode) + " " + String(" \t Message :") + httpClient.errorToString(httpCode) , DEBUG);
     }
     else {
       if (httpCode == HTTP_CODE_FOUND || httpCode == HTTP_CODE_OK) {
-        message(String(" +  Code:") + String(httpCode) + " PayLoad:" + String(payload), INFO);    //Print request response payload
+        message(String(" +  Code:") + String(httpCode)); // + " PayLoad:" + String(payload), INFO);    //Print request response payload
       } else {
+        String payload = httpClient.getString(); // Get the response payload
         message(String(" -  Code:") + String(httpCode) + " PayLoad:" + String(payload), DEBUG);    //Print request response payload
       }
     }
-
     httpClient.end();
-    message("-------", DEBUG);
   } else {
     message("No internet access", DEBUG);
   }
@@ -511,13 +497,10 @@ void growBookPostEvent(String value, String sensor, String type, String value3)
 /**
 
 */
-void growBookPostValue(String key, String value)
-{
+void growBookPostValue(String key, String value) {
   if ((CHECK_INTERNET_CONNECT && internet_access) || !CHECK_INTERNET_CONNECT) {
-
-    WiFiClient client;
     String url = String(GROWBOOK_URL) + "plant/cli/" + urlencode(WiFi.hostname()) + "/" + urlencode(key) + "/" + urlencode(value);
-    httpClient.begin(client, url);
+    httpClient.begin(wifi_client, url);
     httpClient.setTimeout(2000);
     httpClient.addHeader("Content-Type", "application/x-www-form-urlencoded");  //Specify content-type header
     String postData;
@@ -540,9 +523,7 @@ void growBookPostValue(String key, String value)
         message(String(" -  Code:") + String(httpCode) + " PayLoad:" + String(payload), DEBUG);    //Print request response payload
       }
     }
-
     httpClient.end();
-    message("-------", DEBUG);
   } else {
     message("No internet access", DEBUG);
   }
@@ -606,10 +587,13 @@ bool wifi_connect() {
   Keep type of mesages
 */
 //static inline char *stringFromLogType(enum LogType lt)
-static const char *stringFromLogType(const enum LogType lt)
-{
+static const char *stringFromLogType(const enum LogType lt) {
   static const char *strings[] = {"INFO", "WARN", "ERROR", "PASS", "FAIL", "CRITICAL", "DEBUG"};
   return strings[lt];
+}
+
+void message(const String msg) {
+  message(msg, DEBUG);
 }
 
 /**
@@ -619,12 +603,12 @@ void message(const String msg, const enum LogType lt) {
   if (MESSAGE_OPT) {
     if (msg.length() == 0) {
       Serial.println(msg);
-    }
-    else {
+    } else {
       Serial.println(String(uptime) + ":" + String(timeClient.getEpochTime()) + " : " + timeClient.getFormattedTime() + " : " + String(stringFromLogType(lt)) + " : " + msg);
     }
   }
 }
+
 
 /**
    Start WEB server
@@ -933,6 +917,24 @@ String getAddressString(const DeviceAddress deviceAddress) {
   return ret;
 }
 
+/**
+
+*/
+String urlencode(const String &s) {
+  static const char lookup[] = "0123456789abcdef";
+  String result;
+  size_t len = s.length();
+
+  for (size_t i = 0; i < len; i++) {
+    const char c = s[i];
+    if (('0' <= c && c <= '9') || ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z') || (c == '-' || c == '_' || c == '.' || c == '~')) {
+      result += c;
+    } else {
+      result += "%" + String(lookup[(c & 0xf0) >> 4]) + String(lookup[c & 0x0f]);
+    }
+  }
+  return result;
+}
 ////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////
 
