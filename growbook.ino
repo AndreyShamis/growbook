@@ -68,7 +68,6 @@
    For example loop_delay=10, counter sec will be 100 , when (counter%100 == 0) happens every second
 */
 #define COUNTER_IN_LOOP_SECOND              (int)(1000/LOOP_DELAY)
-#define UPTIME_CALL_SERVER_COUNTER          (COUNTER_IN_LOOP_SECOND*5)
 #define CALL_SERVER_COUNTER                 (COUNTER_IN_LOOP_SECOND*10)
 #define CHECK_SENSORS                       (COUNTER_IN_LOOP_SECOND*20) //(COUNTER_IN_LOOP_SECOND*3)
 #define NTP_UPDATE_COUNTER                  (COUNTER_IN_LOOP_SECOND*60*3)
@@ -229,7 +228,7 @@ void setup(void) {
     //      ESP.restart();
     delay(2000);
   } else {
-    Serial.println("\n\n\n\n\n\n\n\n\n\n\nRESET_FOUND\n\n\n\n\n\n\n\n\n\n\n");
+    Serial.println("\n\n\n\n\n\n\n\n\n\n\nRESET_FOUND\n\n\n\n\n");
   }
 
   message("Starting SPIFFS....", INFO);
@@ -293,13 +292,7 @@ void loop(void) {
   } else {
 
     if (counter % CALL_SERVER_COUNTER == 0 && internet_access) {
-      //message("HERE");
-      growBookPostValue("light", String(light_enabled));
-    } else {
-      if (uptime > 30 && counter % UPTIME_CALL_SERVER_COUNTER == 0 && internet_access) {
-        //message("HERE 2");
-        growBookPostValue("uptime", String(uptime));
-      }
+      growBookPostValues();
     }
   }
 
@@ -517,12 +510,52 @@ void growBookPostValue(String key, String value) {
     int httpCode = httpClient.POST(postData); // Send the request
     ESP.wdtFeed();
     ESP.wdtEnable(5000);
-    String payload = httpClient.getString(); // Get the response payload
     //  if ( httpCode == HTTP_CODE_OK) {
     if (httpCode < 0) {
       message(String(" !  -  Code:") + String(httpCode) + " " + String(" \t Message :") + httpClient.errorToString(httpCode) , DEBUG);
     }
     else {
+      String payload = httpClient.getString(); // Get the response payload
+      if (httpCode == HTTP_CODE_FOUND || httpCode == HTTP_CODE_OK) {
+        message(String(" +  Code:") + String(httpCode) + " PayLoad:" + String(payload), INFO);    //Print request response payload
+      } else {
+        message(String(" -  Code:") + String(httpCode) + " PayLoad:" + String(payload), DEBUG);    //Print request response payload
+      }
+    }
+    httpClient.end();
+  } else {
+    message("No internet access", DEBUG);
+  }
+}
+
+/**
+
+*/
+void growBookPostValues() {
+  if ((CHECK_INTERNET_CONNECT && internet_access) || !CHECK_INTERNET_CONNECT) {
+    String url = String(GROWBOOK_URL) + "plant/cli/" + urlencode(WiFi.hostname());
+    httpClient.begin(wifi_client, url);
+    httpClient.setTimeout(2000);
+    httpClient.addHeader("Content-Type", "application/x-www-form-urlencoded");  //Specify content-type header
+    String postData;
+    postData = "uptime=" + urlencode(String(uptime)) + "&" + urlencode("light_enabled") + "=" + urlencode(String(light_enabled));
+    postData += "&wifi_channel=" + urlencode(String(WiFi.channel())) + "&" + urlencode("rssi") + "=" + urlencode(String(WiFi.RSSI()));
+    postData += "&flash_chip_mode=" + urlencode(String(ESP.getFlashChipMode())) + "&" + urlencode("boot_mode") + "=" + urlencode(String(ESP.getBootMode()));
+    postData += "&cpu_freq=" + urlencode(String(ESP.getCpuFreqMHz())) + "&" + urlencode("sdk_version") + "=" + urlencode(String(ESP.getSdkVersion()));
+    message(String("postData:") + postData, DEBUG); // Print HTTP return code
+    ESP.wdtDisable();
+    ESP.wdtFeed();
+
+    int httpCode = httpClient.POST(postData); // Send the request
+
+    ESP.wdtFeed();
+    ESP.wdtEnable(5000);
+    //  if ( httpCode == HTTP_CODE_OK) {
+    if (httpCode < 0) {
+      message(String(" !  -  Code:") + String(httpCode) + " " + String(" \t Message :") + httpClient.errorToString(httpCode) , DEBUG);
+    }
+    else {
+      String payload = httpClient.getString(); // Get the response payload
       if (httpCode == HTTP_CODE_FOUND || httpCode == HTTP_CODE_OK) {
         message(String(" +  Code:") + String(httpCode) + " PayLoad:" + String(payload), INFO);    //Print request response payload
       } else {
