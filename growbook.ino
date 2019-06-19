@@ -183,7 +183,6 @@ float   getTemperature(const int dev = 0);
   Setup the controller
 */
 void setup(void) {
-  //ADC_MODE(ADC_VCC);
   //pinMode(LIGHT_SENSOR_PIN, INPUT);
   pinMode(LIGHT_SENSOR_D0, INPUT);
   if (CHECK_INTERNET_CONNECT) {
@@ -239,7 +238,8 @@ void setup(void) {
   //message("Compile SPIFFS", INFO);
   //  SPIFFS.format();
 
-  dht.setup(DHT_HUMIDITY_PIN, DHTesp::AUTO_DETECT);   // dht.setup(DHT_HUMIDITY_PIN, DHTesp::DHT22); //for DHT22
+  dht.setup(DHT_HUMIDITY_PIN, DHTesp::AUTO_DETECT);   // 
+  //dht.setup(DHT_HUMIDITY_PIN, DHTesp::DHT22); //for DHT22
   message(String("DHT") + String(dht.getModel()) + String(dht.getModel()), INFO);
   //Serial.println(build_index());
   wifi_connect();
@@ -293,11 +293,11 @@ void loop(void) {
   } else {
 
     if (counter % CALL_SERVER_COUNTER == 0 && internet_access) {
-      message("HERE");
+      //message("HERE");
       growBookPostValue("light", String(light_enabled));
     } else {
       if (uptime > 30 && counter % UPTIME_CALL_SERVER_COUNTER == 0 && internet_access) {
-        message("HERE 2");
+        //message("HERE 2");
         growBookPostValue("uptime", String(uptime));
       }
     }
@@ -334,7 +334,7 @@ void loop(void) {
     if (internet_access) {
       message("Starting update the time...", DEBUG);
       update_time();
-      if ( boot_time == 0 && timeClient.getEpochTime() > INCORRECT_EPOCH ) {
+      if (boot_time == 0 && timeClient.getEpochTime() > INCORRECT_EPOCH) {
         message("Update boot_time = " + String(timeClient.getEpochTime()), INFO);
         boot_time = timeClient.getEpochTime();
       }
@@ -350,22 +350,25 @@ void loop(void) {
   uptime = timeClient.getEpochTime() - boot_time;
 }
 
-bool sensors_hydrometer()
-{
+bool sensors_hydrometer() {
   float hydro_value = analogRead(HYDROMETER_PIN);
-
+  float hydro_value_src = hydro_value;
+  //outputValue = map(hydro_value, 0, 1024, 100, 0);
   hydro_value = float ((1023 - hydro_value) / 10);
   sensorsSingleLog += " HYDRO:[" + String(hydro_value) + "]";
   //if (hydro_value_prev != hydro_value) {
   String model = "HYDRO_" + String(HYDROMETER_PIN) + "_";
-  if (hydro_value < 100 && hydro_value > 0) {
-    growBookPostEvent(String(hydro_value), model + "_-_" + String(WiFi.hostname()) + String("_-_0"), TypeNames[HYDROMETER], "");
-    growBookPostValue("hydrometer", String(hydro_value));
+  if (hydro_value < 100 && hydro_value > 3) {
+    if (hydro_value != hydro_value_prev) {
+      growBookPostEvent(String(hydro_value), model + "_-_" + String(WiFi.hostname()) + String("_-_0"), TypeNames[HYDROMETER], "");
+      hydro_value_prev = hydro_value;
+    }
   }
   else {
-    message("Hudrometer bad value: " + String(hydro_value), DEBUG);
+    message("Hydrometer bad value: " + String(hydro_value) + " -- SRC:" + String(hydro_value_src), CRITICAL);
   }
-  hydro_value_prev = hydro_value;
+  growBookPostValue("hydrometer", String(hydro_value));
+
   return true;
 }
 
@@ -401,12 +404,12 @@ bool sensors_light() {
 bool sonsors_dallas() {
   sensorsSingleLog = "Temperature:";
   int devices_count = sensor.getDeviceCount();
+  float sum_tmp = 0;
   for (int i = 0; i < devices_count; i++) {
     float prevTmp = current_temp[i];
     float tmp_1 = 0;
     float tmp_2 = 1;
     current_temp[i] = getTemperature(i);
-    float sum_tmp = 0;
     if (prevTmp != current_temp[i]) {
       short int _c = 0;
       while (tmp_1 != tmp_2 && _c < 10) {
@@ -421,22 +424,22 @@ bool sonsors_dallas() {
         }
       }
       current_temp[i] = tmp_1;
-      sum_tmp += current_temp[i];
     }
 
     float tmp_diff = prevTmp - current_temp[i];
     if (current_temp[i] > LOW_TEMPERATURE && current_temp[i] < HIGH_TEMPERATURE) {
+      sum_tmp += current_temp[i];
       sensorsSingleLog += " \t " + String(i) + ": " + String(current_temp[i]) + " C \t | ";
       if (fabs(tmp_diff) > MIN_TEMPERATURE_TH) {
         growBookPostEvent(String(current_temp[i]), String(getAddressString(insideThermometer[i])), TypeNames[TEMPERATURE], "");
       }
-      if (devices_count) {
-        sum_tmp = sum_tmp / devices_count;
-        growBookPostValue("temperature", String(sum_tmp));
-      }
     } else {
       growBookPostValue("BAD_TEMERATURE_VALUE_" + String(getAddressString(insideThermometer[i])), String(current_temp[i]));
     }
+  }
+  if (devices_count) {
+    sum_tmp = sum_tmp / devices_count;
+    growBookPostValue("temperature", String(sum_tmp));
   }
   return true;
 }
@@ -451,6 +454,9 @@ bool sonsors_dht() {
   if (fabs(current_humidity - humidity)  > MIN_HUMIDITY_TH) {
     String model = String("DHT") + String(dht.getModel()) + String(dht.getModel());
     growBookPostEvent(String(humidity), model + "_-_" + String(WiFi.hostname()) + String("_-_0"), TypeNames[HUMIDITY], String(heat_index));
+    growBookPostValue("humidity", String(humidity));
+  }
+  if (humidity < 7) {
     growBookPostValue("humidity", String(humidity));
   }
   current_humidity = humidity;
@@ -754,21 +760,6 @@ void update_time() {
   }
   message("Time updated." , PASS);
 }
-
-///**
-//
-//*/
-//int getInsideThermometer() {
-//  return (1 - outsideThermometerIndex); // TODO fix it
-//}
-//
-///***
-//
-//*/
-//void saveOutsideThermometerIndex(const int newIndex) {
-//  save_setting("/outTmpIndex", String(newIndex));
-//  outsideThermometerIndex = read_setting("/outTmpIndex").toInt();
-//}
 
 /**
    Get Temperature
