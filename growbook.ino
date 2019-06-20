@@ -157,14 +157,17 @@ DeviceAddress       insideThermometer[NUMBER_OF_SENSORS];       // arrays to hol
 WiFiUDP             ntpUDP;
 IPAddress           pingServer (8, 8, 8, 8);    // Ping server
 float               current_temp[NUMBER_OF_SENSORS];
-float               current_humidity = 0;
 /**
     You can specify the time server pool and the offset (in seconds, can be changed later with setTimeOffset()).
     Additionaly you can specify the update interval (in milliseconds, can be changed using setUpdateInterval()). */
 NTPClient           timeClient(ntpUDP, NTP_SERVER, NTP_TIME_OFFSET_SEC, NTP_UPDATE_INTERVAL_MS);
 HTTPClient          httpClient;    //Declare object of class HTTPClient
 DHTesp              dht;
+float               temp_sum_value_prev = 0;
+float               temp_min_value_prev = 0;
+float               temp_max_value_prev = 0;
 float               hydro_value_prev = 0;
+float               humidity_value_prev = 0;
 bool                light_enabled = false;
 unsigned long       boot_time = 0;
 unsigned long       uptime = 0;
@@ -398,6 +401,8 @@ bool sonsors_dallas() {
   sensorsSingleLog = "Temperature:";
   int devices_count = sensor.getDeviceCount();
   float sum_tmp = 0;
+  temp_max_value_prev = LOW_TEMPERATURE;
+  temp_min_value_prev = HIGH_TEMPERATURE;
   for (int i = 0; i < devices_count; i++) {
     float prevTmp = current_temp[i];
     float tmp_1 = 0;
@@ -422,8 +427,14 @@ bool sonsors_dallas() {
     float tmp_diff = prevTmp - current_temp[i];
     if (current_temp[i] > LOW_TEMPERATURE && current_temp[i] < HIGH_TEMPERATURE) {
       sum_tmp += current_temp[i];
+      temp_max_value_prev = max(temp_max_value_prev, current_temp[i]);
+      temp_min_value_prev = min(temp_min_value_prev, current_temp[i]);
       sensorsSingleLog += " \t " + String(i) + ": " + String(current_temp[i]) + " C \t | ";
-      if (fabs(tmp_diff) > MIN_TEMPERATURE_TH) {
+      bool epoch_trigger = timeClient.getEpochTime() % 7 == 0;
+      if (fabs(tmp_diff) > MIN_TEMPERATURE_TH || epoch_trigger) {
+        if (epoch_trigger) {
+          message("- ---          ****************************** ---------- EPOCH TRIGGER");
+        }
         growBookPostEvent(String(current_temp[i]), String(getAddressString(insideThermometer[i])), TypeNames[TEMPERATURE], "");
       }
     } else {
@@ -432,6 +443,7 @@ bool sonsors_dallas() {
   }
   if (devices_count) {
     sum_tmp = sum_tmp / devices_count;
+    temp_sum_value_prev = sum_tmp;
     growBookPostValue("temperature", String(sum_tmp));
   }
   return true;
@@ -443,16 +455,19 @@ bool sonsors_dht() {
   float heat_index = dht.computeHeatIndex(temperature, humidity, false);
   float dewPoint = dht.computeDewPoint(temperature, humidity, false);
   float absoluteHumidity = dht.computeAbsoluteHumidity(temperature, humidity, false);
+  bool epoch_trigger = timeClient.getEpochTime() % 17 == 0;
   sensorsSingleLog += String(" \t Humidity:") + "DHT Status [" + dht.getStatusString() + "]\tHumidity: [" + humidity + "%] \t TMP:" + temperature + "C - Heat Index: [" + heat_index + " C]" + " DewPoint : " + String(dewPoint) + " absoluteHumidity:" + String(absoluteHumidity) + " dec size:" + String(dht.getNumberOfDecimalsHumidity());
-  if (fabs(current_humidity - humidity)  > MIN_HUMIDITY_TH) {
+  if (fabs(humidity_value_prev - humidity)  > MIN_HUMIDITY_TH || epoch_trigger) {
+            if (epoch_trigger) {
+          message("- ---          ****************************** ---------- EPOCH TRIGGER ----------------------------- DHT");
+        }
     String model = String("DHT") + String(dht.getModel()) + String(dht.getModel());
     growBookPostEvent(String(humidity), model + "_-_" + String(WiFi.hostname()) + String("_-_0"), TypeNames[HUMIDITY], String(heat_index));
+  }
+  if (humidity < 7 || (humidity > 90 && humidity <= 100)) {
     growBookPostValue("humidity", String(humidity));
   }
-  if (humidity < 7) {
-    growBookPostValue("humidity", String(humidity));
-  }
-  current_humidity = humidity;
+  humidity_value_prev = humidity;
 
   return true;
 }
@@ -539,9 +554,25 @@ void growBookPostValues() {
     httpClient.addHeader("Content-Type", "application/x-www-form-urlencoded");  //Specify content-type header
     String postData;
     postData = "uptime=" + urlencode(String(uptime)) + "&" + urlencode("light_enabled") + "=" + urlencode(String(light_enabled));
+    if (humidity_value_prev > 0) {
+      postData += "&humidity=" + urlencode(String(humidity_value_prev));
+    }
+    if (temp_sum_value_prev > 0) {
+      postData += "&temerature=" + urlencode(String(temp_sum_value_prev));
+    }
+    if (temp_min_value_prev > 0) {
+      postData += "&temerature_min=" + urlencode(String(temp_min_value_prev));
+    }
+    if (temp_max_value_prev > 0) {
+      postData += "&temerature_max=" + urlencode(String(temp_max_value_prev));
+    }
+
+    
     postData += "&wifi_channel=" + urlencode(String(WiFi.channel())) + "&" + urlencode("rssi") + "=" + urlencode(String(WiFi.RSSI()));
     postData += "&flash_chip_mode=" + urlencode(String(ESP.getFlashChipMode())) + "&" + urlencode("boot_mode") + "=" + urlencode(String(ESP.getBootMode()));
     postData += "&cpu_freq=" + urlencode(String(ESP.getCpuFreqMHz())) + "&" + urlencode("sdk_version") + "=" + urlencode(String(ESP.getSdkVersion()));
+
+    
     message(String("postData:") + postData, DEBUG); // Print HTTP return code
     ESP.wdtDisable();
     ESP.wdtFeed();
