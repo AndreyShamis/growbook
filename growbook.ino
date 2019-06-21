@@ -166,7 +166,7 @@ DHTesp              dht;
 float               temp_sum_value_prev = 0;
 float               temp_min_value_prev = 0;
 float               temp_max_value_prev = 0;
-float               hydro_value_prev = 0;
+float               hydro_value_prev = -1;
 float               humidity_value_prev = 0;
 bool                light_enabled = false;
 unsigned long       boot_time = 0;
@@ -240,7 +240,7 @@ void setup(void) {
   //message("Compile SPIFFS", INFO);
   //  SPIFFS.format();
 
-  dht.setup(DHT_HUMIDITY_PIN, DHTesp::AUTO_DETECT);   // 
+  dht.setup(DHT_HUMIDITY_PIN, DHTesp::AUTO_DETECT);   //
   //dht.setup(DHT_HUMIDITY_PIN, DHTesp::DHT22); //for DHT22
   message(String("DHT") + String(dht.getModel()) + String(dht.getModel()), INFO);
   //Serial.println(build_index());
@@ -293,7 +293,6 @@ void loop(void) {
     delay(40);
     message(sensorsSingleLog, INFO);
   } else {
-
     if (counter % CALL_SERVER_COUNTER == 0 && internet_access) {
       growBookPostValues();
     }
@@ -349,18 +348,18 @@ void loop(void) {
 bool sensors_hydrometer() {
   float hydro_value = analogRead(HYDROMETER_PIN);
   float hydro_value_src = hydro_value;
-  //outputValue = map(hydro_value, 0, 1024, 100, 0);
+  float outputValue = map(hydro_value, 0, 1024, 1000, 0) / 10.0;
+
   hydro_value = float ((1023 - hydro_value) / 10);
   sensorsSingleLog += " HYDRO:[" + String(hydro_value) + "]";
-  //if (hydro_value_prev != hydro_value) {
   String model = "HYDRO_" + String(HYDROMETER_PIN) + "_";
-  if (hydro_value < 100 && hydro_value > 3) {
+  message("outputValue:" + String(outputValue) + " hydro_value:" + String(hydro_value));
+  if (hydro_value > 0 && hydro_value <= 100) {
     if (hydro_value != hydro_value_prev) {
       growBookPostEvent(String(hydro_value), model + "_-_" + String(WiFi.hostname()) + String("_-_0"), TypeNames[HYDROMETER], "");
       hydro_value_prev = hydro_value;
     }
-  }
-  else {
+  } else {
     message("Hydrometer bad value: " + String(hydro_value) + " -- SRC:" + String(hydro_value_src), CRITICAL);
   }
   growBookPostValue("hydrometer", String(hydro_value));
@@ -458,13 +457,13 @@ bool sonsors_dht() {
   bool epoch_trigger = timeClient.getEpochTime() % 17 == 0;
   sensorsSingleLog += String(" \t Humidity:") + "DHT Status [" + dht.getStatusString() + "]\tHumidity: [" + humidity + "%] \t TMP:" + temperature + "C - Heat Index: [" + heat_index + " C]" + " DewPoint : " + String(dewPoint) + " absoluteHumidity:" + String(absoluteHumidity) + " dec size:" + String(dht.getNumberOfDecimalsHumidity());
   if (fabs(humidity_value_prev - humidity)  > MIN_HUMIDITY_TH || epoch_trigger) {
-            if (epoch_trigger) {
-          message("- ---          ****************************** ---------- EPOCH TRIGGER ----------------------------- DHT");
-        }
+    if (epoch_trigger) {
+      message("- ---          ****************************** ---------- EPOCH TRIGGER ----------------------------- DHT");
+    }
     String model = String("DHT") + String(dht.getModel()) + String(dht.getModel());
     growBookPostEvent(String(humidity), model + "_-_" + String(WiFi.hostname()) + String("_-_0"), TypeNames[HUMIDITY], String(heat_index));
   }
-  if (humidity < 7 || (humidity > 90 && humidity <= 100)) {
+  if (humidity < 10 || (humidity > 90 && humidity <= 100)) {
     growBookPostValue("humidity", String(humidity));
   }
   humidity_value_prev = humidity;
@@ -566,13 +565,16 @@ void growBookPostValues() {
     if (temp_max_value_prev > 0) {
       postData += "&temerature_max=" + urlencode(String(temp_max_value_prev));
     }
+    if (hydro_value_prev > 0 || hydro_value_prev <= 100) {
+      postData += "&hydrometer=" + urlencode(String(hydro_value_prev));
+    }
 
-    
+
     postData += "&wifi_channel=" + urlencode(String(WiFi.channel())) + "&" + urlencode("rssi") + "=" + urlencode(String(WiFi.RSSI()));
     postData += "&flash_chip_mode=" + urlencode(String(ESP.getFlashChipMode())) + "&" + urlencode("boot_mode") + "=" + urlencode(String(ESP.getBootMode()));
     postData += "&cpu_freq=" + urlencode(String(ESP.getCpuFreqMHz())) + "&" + urlencode("sdk_version") + "=" + urlencode(String(ESP.getSdkVersion()));
 
-    
+
     message(String("postData:") + postData, DEBUG); // Print HTTP return code
     ESP.wdtDisable();
     ESP.wdtFeed();
