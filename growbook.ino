@@ -348,9 +348,7 @@ void loop(void) {
 bool sensors_hydrometer() {
   float hydro_value = analogRead(HYDROMETER_PIN);
   float hydro_value_src = hydro_value;
-  float outputValue = map(hydro_value, 0, 1024, 1000, 0) / 10.0;
-
-  hydro_value = float ((1023 - hydro_value) / 10);
+  hydro_value = map(hydro_value, 0, 1024, 1000, 0) / 10.0;
   sensorsSingleLog += " HYDRO:[" + String(hydro_value) + "]";
   String model = "HYDRO_" + String(HYDROMETER_PIN) + "_";
   message("outputValue:" + String(outputValue) + " hydro_value:" + String(hydro_value));
