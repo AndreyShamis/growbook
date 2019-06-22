@@ -279,7 +279,7 @@ void loop(void) {
       reconnect_cnv();
     }
   }
-
+  check_light();
   // SENSORS  ---------------------------------------------------------------------------------------
   if (counter % CHECK_SENSORS == 0) {
     sensorsSingleLog = "";
@@ -364,11 +364,7 @@ bool sensors_hydrometer() {
   return true;
 }
 
-/**
-
-*/
-bool sensors_light() {
-
+bool check_light() {
   int digitalVal = digitalRead(LIGHT_SENSOR_D0);    // Read the digital interface
   bool change_found = false;
   if (digitalVal == HIGH) {
@@ -384,6 +380,19 @@ bool sensors_light() {
     }
     light_enabled = true;
   }
+
+  if (change_found) {
+    growBookPostValue("light", String(light_enabled));
+  }
+
+  return light_enabled;
+}
+/**
+
+*/
+bool sensors_light() {
+
+  check_light();
   sensorsSingleLog += " LIGHT IS " + String(light_enabled) + " ";
   //if (change_found) {
   String serail = "LDR_" + String(WiFi.hostname()) + String("_" + String(LIGHT_SENSOR_D0));
