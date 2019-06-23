@@ -168,6 +168,7 @@ float               temp_min_value_prev = 0;
 float               temp_max_value_prev = 0;
 float               hydro_value_prev = -1;
 float               humidity_value_prev = 0;
+float               humidity_value = 0;
 bool                light_enabled = false;
 unsigned long       boot_time = 0;
 unsigned long       uptime = 0;
@@ -239,10 +240,33 @@ void setup(void) {
   message("SPIFFS startted.", PASS);
   //message("Compile SPIFFS", INFO);
   //  SPIFFS.format();
-
+  message("DHT start AUTO_DETECT mode...");
   dht.setup(DHT_HUMIDITY_PIN, DHTesp::AUTO_DETECT);   //
+  TempAndHumidity _t = read_dht();
+  if (_t.humidity == NAN) {
+    message("DHT auto detect failed. Seting DHT22");
+    dht.setup(DHT_HUMIDITY_PIN, DHTesp::DHT22);
+    _t = read_dht();
+    if (_t.humidity == NAN) {
+      message("DHT22 detect failed. Seting DHT11");
+      dht.setup(DHT_HUMIDITY_PIN, DHTesp::DHT11);
+      _t = read_dht();
+      if (_t.humidity == NAN) {
+        message("DHT11 detect failed. Seting AUTO_DETECT");
+        dht.setup(DHT_HUMIDITY_PIN, DHTesp::AUTO_DETECT);
+      } else {
+        message("DHT11 success.", PASS);
+      }
+    } else {
+      message("DHT22 success.", PASS);
+    }
+  } else {
+    message("DHT AUTO_DETECT success.", PASS);
+  }
+
   //dht.setup(DHT_HUMIDITY_PIN, DHTesp::DHT22); //for DHT22
-  message(String("DHT") + String(dht.getModel()) + String(dht.getModel()), INFO);
+  String dht_model = "DHT" + String(dht.getModel()) + String(dht.getModel());
+  message("DHT MODEL :" + dht_model, INFO);
   //Serial.println(build_index());
   wifi_connect();
   server_start();
@@ -280,6 +304,7 @@ void loop(void) {
     }
   }
   check_light();
+  read_dht();
   // SENSORS  ---------------------------------------------------------------------------------------
   if (counter % CHECK_SENSORS == 0) {
     sensorsSingleLog = "";
@@ -349,11 +374,11 @@ bool sensors_hydrometer() {
   float hydro_value = analogRead(HYDROMETER_PIN);
   float hydro_value_src = hydro_value;
   hydro_value = map(hydro_value, 0, 1024, 1000, 0) / 10.0;
-  sensorsSingleLog += " HYDRO:[" + String(hydro_value) + "]";
+  sensorsSingleLog += " HYDRO:[" + String(hydro_value) + " :src=" + hydro_value_src + "]";
   String model = "HYDRO_" + String(HYDROMETER_PIN) + "_";
-  if (hydro_value > 0 && hydro_value <= 100) {
+  if (hydro_value >= 0 && hydro_value <= 100) {
     if (hydro_value != hydro_value_prev) {
-      growBookPostEvent(String(hydro_value), model + "_-_" + String(WiFi.hostname()) + String("_-_0"), TypeNames[HYDROMETER], "");
+      growBookPostEvent(String(hydro_value), model + "_-_" + String(WiFi.hostname()) + String("_-_0"), TypeNames[HYDROMETER], "", "", "");
       hydro_value_prev = hydro_value;
     }
   } else {
@@ -397,7 +422,7 @@ bool sensors_light() {
   //if (change_found) {
   String serail = "LDR_" + String(WiFi.hostname()) + String("_" + String(LIGHT_SENSOR_D0));
   growBookPostValue("light", String(light_enabled));
-  //growBookPostEvent(String(light_enabled), serail, TypeNames[LIGHT], "");
+  //growBookPostEvent(String(light_enabled), serail, TypeNames[LIGHT], "", "", "");
   /// }
   return true;
 }
@@ -440,7 +465,7 @@ bool sonsors_dallas() {
         if (epoch_trigger) {
           message("- ---          ****************************** ---------- EPOCH TRIGGER");
         }
-        growBookPostEvent(String(current_temp[i]), String(getAddressString(insideThermometer[i])), TypeNames[TEMPERATURE], "");
+        growBookPostEvent(String(current_temp[i]), String(getAddressString(insideThermometer[i])), TypeNames[TEMPERATURE], "", "", "");
       }
     } else {
       growBookPostValue("BAD_TEMERATURE_VALUE_" + String(getAddressString(insideThermometer[i])), String(current_temp[i]));
@@ -454,30 +479,38 @@ bool sonsors_dallas() {
   return true;
 }
 
+TempAndHumidity read_dht() {
+  TempAndHumidity ret = dht.getTempAndHumidity();
+  humidity_value = ret.humidity;
+  return ret;
+}
+
+/**
+    Humidity sensor
+*/
 bool sonsors_dht() {
-  float humidity = dht.getHumidity();
-  float temperature = dht.getTemperature();
-  float heat_index = dht.computeHeatIndex(temperature, humidity, false);
-  float dewPoint = dht.computeDewPoint(temperature, humidity, false);
-  float absoluteHumidity = dht.computeAbsoluteHumidity(temperature, humidity, false);
+  TempAndHumidity ret = read_dht();
+  float heat_index = dht.computeHeatIndex(ret.temperature, ret.humidity, false);
+  float dewPoint = dht.computeDewPoint(ret.temperature, ret.humidity, false);
+  float absoluteHumidity = dht.computeAbsoluteHumidity(ret.temperature, ret.humidity, false);
   bool epoch_trigger = timeClient.getEpochTime() % 17 == 0;
-  sensorsSingleLog += String(" \t Humidity:") + "DHT Status [" + dht.getStatusString() + "]\tHumidity: [" + humidity + "%] \t TMP:" + temperature + "C - Heat Index: [" + heat_index + " C]" + " DewPoint : " + String(dewPoint) + " absoluteHumidity:" + String(absoluteHumidity) + " dec size:" + String(dht.getNumberOfDecimalsHumidity());
-  if (fabs(humidity_value_prev - humidity)  > MIN_HUMIDITY_TH || epoch_trigger) {
+  sensorsSingleLog += String(" \t Humidity:") + "DHT Status [" + dht.getStatusString() + "]\tHumidity: [" + ret.humidity + "%] \t TMP:" + ret.temperature + "C - Heat Index: [" + heat_index + " C]" + " DewPoint : " + String(dewPoint) + " absoluteHumidity:" + String(absoluteHumidity) + " dec size:" + String(dht.getNumberOfDecimalsHumidity());
+  if (fabs(humidity_value_prev - ret.humidity)  > MIN_HUMIDITY_TH || epoch_trigger) {
     if (epoch_trigger) {
       message("- ---          ****************************** ---------- EPOCH TRIGGER ----------------------------- DHT");
     }
     String model = String("DHT") + String(dht.getModel()) + String(dht.getModel());
-    growBookPostEvent(String(humidity), model + "_-_" + String(WiFi.hostname()) + String("_-_0"), TypeNames[HUMIDITY], String(heat_index));
+    growBookPostEvent(String(ret.humidity), model + "_-_" + String(WiFi.hostname()) + String("_-_0"), TypeNames[HUMIDITY], String(absoluteHumidity), String(ret.temperature), String(heat_index));
   }
-  if (humidity < 10 || (humidity > 90 && humidity <= 100)) {
-    growBookPostValue("humidity", String(humidity));
-  }
-  humidity_value_prev = humidity;
+  //  if (humidity < 10 || (humidity > 90 && humidity <= 100)) {
+  //    growBookPostValue("humidity", String(humidity));
+  //  }
+  humidity_value_prev = humidity_value = ret.humidity;
 
   return true;
 }
 
-void growBookPostEvent(String value, String sensor, String type, String value3) {
+void growBookPostEvent(String value, String sensor, String type, String value1, String value2, String value3) {
   if ((CHECK_INTERNET_CONNECT && internet_access) || !CHECK_INTERNET_CONNECT) {
     String note = "";
     String url = String(GROWBOOK_URL) + "event/new?type=" + String(type);
@@ -486,6 +519,12 @@ void growBookPostEvent(String value, String sensor, String type, String value3) 
     httpClient.addHeader("Content-Type", "application/x-www-form-urlencoded");  //Specify content-type header
     String postData;
     postData = String("rssi=") + urlencode(String(WiFi.RSSI())) + "&uptime=" + urlencode(String(uptime)) + "&value=" + urlencode(value) + "&sensor_id=" + urlencode(sensor) + "&note=" + urlencode(note) + "&plant_id=" + urlencode(WiFi.hostname());
+    if ( value1 != "" ) {
+      postData += "&value1=" + urlencode(value1);
+    }
+    if ( value2 != "" ) {
+      postData += "&value2=" + urlencode(value2);
+    }
     if ( value3 != "" ) {
       postData += "&value3=" + urlencode(value3);
     }
@@ -559,8 +598,8 @@ void growBookPostValues() {
     httpClient.addHeader("Content-Type", "application/x-www-form-urlencoded");  //Specify content-type header
     String postData;
     postData = "uptime=" + urlencode(String(uptime)) + "&" + urlencode("light_enabled") + "=" + urlencode(String(light_enabled));
-    if (humidity_value_prev > 0) {
-      postData += "&humidity=" + urlencode(String(humidity_value_prev));
+    if (humidity_value > 0) {
+      postData += "&humidity=" + urlencode(String(humidity_value));
     }
     if (temp_sum_value_prev > 0) {
       postData += "&temerature=" + urlencode(String(temp_sum_value_prev));
