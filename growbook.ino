@@ -384,8 +384,9 @@ bool sensors_hydrometer() {
   hydro_value = map(hydro_value, 0, 1024, 1000, 0) / 10.0;
   sensorsSingleLog += " HYDRO:[" + String(hydro_value) + " :src=" + hydro_value_src + "]";
   String model = "HYDRO_" + String(HYDROMETER_PIN) + "_";
+  bool epoch_trigger = timeClient.getEpochTime() % 7 == 0;
   if (hydro_value >= 0 && hydro_value <= 100) {
-    if (hydro_value != hydro_value_prev) {
+    if (hydro_value != hydro_value_prev || hydro_value_prev == 0 || epoch_trigger) {
       growBookPostEvent(String(hydro_value), model + "_-_" + String(WiFi.hostname()) + String("_-_0"), TypeNames[HYDROMETER], "", "", "");
       hydro_value_prev = hydro_value;
     }
