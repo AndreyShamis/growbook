@@ -68,6 +68,7 @@
    For example loop_delay=10, counter sec will be 100 , when (counter%100 == 0) happens every second
 */
 #define COUNTER_IN_LOOP_SECOND              (int)(1000/LOOP_DELAY)
+#define CHECK_HUMIDITY_COUNTER              (COUNTER_IN_LOOP_SECOND*5) // every 5 seconds
 #define CALL_SERVER_COUNTER                 (COUNTER_IN_LOOP_SECOND*10)
 #define CHECK_SENSORS                       (COUNTER_IN_LOOP_SECOND*20) //(COUNTER_IN_LOOP_SECOND*3)
 #define NTP_UPDATE_COUNTER                  (COUNTER_IN_LOOP_SECOND*60*3)
@@ -297,6 +298,7 @@ void loop(void) {
   if (WiFi.status() != WL_CONNECTED) {
     internet_access = 0;
     delay(2000);
+    ESP.wdtFeed();
     // Check if not connected , disable all network services, reconnect , enable all network services
     if (WiFi.status() != WL_CONNECTED) {
       message("WIFI DISCONNECTED", FAIL_t);
@@ -304,7 +306,9 @@ void loop(void) {
     }
   }
   check_light();
-  read_dht();
+  if (counter % CHECK_HUMIDITY_COUNTER == 0) {
+    read_dht();
+  }
   // SENSORS  ---------------------------------------------------------------------------------------
   if (counter % CHECK_SENSORS == 0) {
     sensorsSingleLog = "";
@@ -312,14 +316,18 @@ void loop(void) {
     delay(10);
     sensors_hydrometer();
     delay(20);
+    ESP.wdtFeed();
     sonsors_dht();
     delay(30);
+    ESP.wdtFeed();
     sensors_light();
     delay(40);
+    ESP.wdtFeed();
     message(sensorsSingleLog, INFO);
   } else {
     if (counter % CALL_SERVER_COUNTER == 0 && internet_access) {
       growBookPostValues();
+      ESP.wdtFeed();
     }
   }
 
@@ -511,59 +519,42 @@ bool sonsors_dht() {
 }
 
 void growBookPostEvent(String value, String sensor, String type, String value1, String value2, String value3) {
-  if ((CHECK_INTERNET_CONNECT && internet_access) || !CHECK_INTERNET_CONNECT) {
-    String note = "";
-    String url = String(GROWBOOK_URL) + "event/new?type=" + String(type);
-    httpClient.begin(wifi_client, url);
-    httpClient.setTimeout(5000);
-    httpClient.addHeader("Content-Type", "application/x-www-form-urlencoded");  //Specify content-type header
-    String postData;
-    postData = String("rssi=") + urlencode(String(WiFi.RSSI())) + "&uptime=" + urlencode(String(uptime)) + "&value=" + urlencode(value) + "&sensor_id=" + urlencode(sensor) + "&note=" + urlencode(note) + "&plant_id=" + urlencode(WiFi.hostname());
-    if ( value1 != "" ) {
-      postData += "&value1=" + urlencode(value1);
-    }
-    if ( value2 != "" ) {
-      postData += "&value2=" + urlencode(value2);
-    }
-    if ( value3 != "" ) {
-      postData += "&value3=" + urlencode(value3);
-    }
-    postData = (postData) + "&type=" + type;
-    message(String("postData:") + postData, DEBUG); // Print HTTP return code
-    ESP.wdtDisable();
-    ESP.wdtFeed();
-    int httpCode = httpClient.POST(postData); // Send the request
-    ESP.wdtFeed();
-    ESP.wdtEnable(5000);
-    if (httpCode < 0) {
-      message(String(" !  -  Code:") + String(httpCode) + " " + String(" \t Message :") + httpClient.errorToString(httpCode) , DEBUG);
-    }
-    else {
-      if (httpCode == HTTP_CODE_FOUND || httpCode == HTTP_CODE_OK) {
-        message(String(" +  Code:") + String(httpCode)); // + " PayLoad:" + String(payload), INFO);    //Print request response payload
-      } else {
-        String payload = httpClient.getString(); // Get the response payload
-        message(String(" -  Code:") + String(httpCode) + " PayLoad:" + String(payload), DEBUG);    //Print request response payload
-      }
-    }
-    httpClient.end();
-  } else {
-    message("No internet access", DEBUG);
+  String note = "";
+  String url = "event/new?type=" + String(type);
+  //    httpClient.setTimeout(5000);
+  String postData;
+  postData = String("rssi=") + urlencode(String(WiFi.RSSI())) + "&uptime=" + urlencode(String(uptime)) + "&value=" + urlencode(value) + "&sensor_id=" + urlencode(sensor) + "&note=" + urlencode(note) + "&plant_id=" + urlencode(WiFi.hostname());
+  if ( value1 != "" ) {
+    postData += "&value1=" + urlencode(value1);
   }
+  if ( value2 != "" ) {
+    postData += "&value2=" + urlencode(value2);
+  }
+  if ( value3 != "" ) {
+    postData += "&value3=" + urlencode(value3);
+  }
+  postData = (postData) + "&type=" + type;
+  postTo(url, postData);
 }
 
 /**
 
 */
 void growBookPostValue(String key, String value) {
+  String url = "plant/cli/" + urlencode(WiFi.hostname());// + "/" + urlencode(key) + "/" + urlencode(value);
+  //    httpClient.setTimeout(2000);
+  String postData;
+  postData = String("key=") + urlencode(key) + "&value=" + urlencode(value);
+  postTo(url, postData);
+}
+
+void postTo(const String &url, const String &postData) {
   if ((CHECK_INTERNET_CONNECT && internet_access) || !CHECK_INTERNET_CONNECT) {
-    String url = String(GROWBOOK_URL) + "plant/cli/" + urlencode(WiFi.hostname()) + "/" + urlencode(key) + "/" + urlencode(value);
-    httpClient.begin(wifi_client, url);
+    String int_url = String(GROWBOOK_URL) + url;
+    httpClient.begin(wifi_client, int_url);
     httpClient.setTimeout(2000);
     httpClient.addHeader("Content-Type", "application/x-www-form-urlencoded");  //Specify content-type header
-    String postData;
-    postData = String("key=") + urlencode(key) + "&value=" + urlencode(value);
-    message(String("postData:") + postData, DEBUG); // Print HTTP return code
+    message(int_url + " : \t" + String("postData:") + postData, DEBUG); // Print HTTP return code
     ESP.wdtDisable();
     ESP.wdtFeed();
     int httpCode = httpClient.POST(postData); // Send the request
@@ -576,7 +567,7 @@ void growBookPostValue(String key, String value) {
     else {
       String payload = httpClient.getString(); // Get the response payload
       if (httpCode == HTTP_CODE_FOUND || httpCode == HTTP_CODE_OK) {
-        message(String(" +  Code:") + String(httpCode) + " PayLoad:" + String(payload), INFO);    //Print request response payload
+        //message(String(" +  Code:") + String(httpCode) + " PayLoad:" + String(payload), INFO);    //Print request response payload
       } else {
         message(String(" -  Code:") + String(httpCode) + " PayLoad:" + String(payload), DEBUG);    //Print request response payload
       }
@@ -584,67 +575,40 @@ void growBookPostValue(String key, String value) {
     httpClient.end();
   } else {
     message("No internet access", DEBUG);
+    delay(20);
   }
 }
-
 /**
 
 */
 void growBookPostValues() {
-  if ((CHECK_INTERNET_CONNECT && internet_access) || !CHECK_INTERNET_CONNECT) {
-    String url = String(GROWBOOK_URL) + "plant/cli/" + urlencode(WiFi.hostname());
-    httpClient.begin(wifi_client, url);
-    httpClient.setTimeout(2000);
-    httpClient.addHeader("Content-Type", "application/x-www-form-urlencoded");  //Specify content-type header
-    String postData;
-    postData = "uptime=" + urlencode(String(uptime)) + "&" + urlencode("light_enabled") + "=" + urlencode(String(light_enabled));
-    if (humidity_value > 0) {
-      postData += "&humidity=" + urlencode(String(humidity_value));
-    }
-    if (temp_sum_value_prev > 0) {
-      postData += "&temerature=" + urlencode(String(temp_sum_value_prev));
-    }
-    if (temp_min_value_prev > 0) {
-      postData += "&temerature_min=" + urlencode(String(temp_min_value_prev));
-    }
-    if (temp_max_value_prev > 0) {
-      postData += "&temerature_max=" + urlencode(String(temp_max_value_prev));
-    }
-    if (hydro_value_prev > 0 || hydro_value_prev <= 100) {
-      postData += "&hydrometer=" + urlencode(String(hydro_value_prev));
-    }
-
-
-    postData += "&wifi_channel=" + urlencode(String(WiFi.channel())) + "&" + urlencode("rssi") + "=" + urlencode(String(WiFi.RSSI()));
-    postData += "&flash_chip_mode=" + urlencode(String(ESP.getFlashChipMode())) + "&" + urlencode("boot_mode") + "=" + urlencode(String(ESP.getBootMode()));
-    postData += "&cpu_freq=" + urlencode(String(ESP.getCpuFreqMHz())) + "&" + urlencode("sdk_version") + "=" + urlencode(String(ESP.getSdkVersion()));
-
-
-    message(String("postData:") + postData, DEBUG); // Print HTTP return code
-    ESP.wdtDisable();
-    ESP.wdtFeed();
-
-    int httpCode = httpClient.POST(postData); // Send the request
-
-    ESP.wdtFeed();
-    ESP.wdtEnable(5000);
-    //  if ( httpCode == HTTP_CODE_OK) {
-    if (httpCode < 0) {
-      message(String(" !  -  Code:") + String(httpCode) + " " + String(" \t Message :") + httpClient.errorToString(httpCode) , DEBUG);
-    }
-    else {
-      String payload = httpClient.getString(); // Get the response payload
-      if (httpCode == HTTP_CODE_FOUND || httpCode == HTTP_CODE_OK) {
-        message(String(" +  Code:") + String(httpCode) + " PayLoad:" + String(payload), INFO);    //Print request response payload
-      } else {
-        message(String(" -  Code:") + String(httpCode) + " PayLoad:" + String(payload), DEBUG);    //Print request response payload
-      }
-    }
-    httpClient.end();
-  } else {
-    message("No internet access", DEBUG);
+  String url = "plant/cli/" + urlencode(WiFi.hostname());
+  //    httpClient.setTimeout(2000);
+  String postData;
+  postData = "uptime=" + urlencode(String(uptime)) + "&" + urlencode("light_enabled") + "=" + urlencode(String(light_enabled));
+  if (humidity_value > 0) {
+    postData += "&humidity=" + urlencode(String(humidity_value));
   }
+  if (temp_sum_value_prev > 0) {
+    postData += "&temerature=" + urlencode(String(temp_sum_value_prev));
+  }
+  if (temp_min_value_prev > 0) {
+    postData += "&temerature_min=" + urlencode(String(temp_min_value_prev));
+  }
+  if (temp_max_value_prev > 0) {
+    postData += "&temerature_max=" + urlencode(String(temp_max_value_prev));
+  }
+  if (hydro_value_prev > 0 || hydro_value_prev <= 100) {
+    postData += "&hydrometer=" + urlencode(String(hydro_value_prev));
+  }
+
+  postData += "&wifi_channel=" + urlencode(String(WiFi.channel())) + "&" + urlencode("rssi") + "=" + urlencode(String(WiFi.RSSI()));
+  postData += "&flash_chip_mode=" + urlencode(String(ESP.getFlashChipMode())) + "&" + urlencode("boot_mode") + "=" + urlencode(String(ESP.getBootMode()));
+  postData += "&cpu_freq=" + urlencode(String(ESP.getCpuFreqMHz())) + "&" + urlencode("sdk_version") + "=" + urlencode(String(ESP.getSdkVersion()));
+
+  postTo(url, postData);
 }
+
 /**
    Reconnect to wifi - in success enable all services and update time
 */
@@ -659,6 +623,7 @@ void reconnect_cnv() {
   } else {
     message("Cannot reconnect to WIFI... ", FAIL_t);
     delay(1000);
+    ESP.wdtFeed();
   }
 }
 
@@ -674,6 +639,7 @@ bool wifi_connect() {
   int con_counter = 0;
   while (WiFi.status() != WL_CONNECTED) {
     delay(200);
+    ESP.wdtFeed();
     Serial.print(".");
     con_counter++;
     if (con_counter % 20 == 0) {
@@ -770,14 +736,16 @@ void close_all_services() {
 
   message(" ----> Closing NTP Client...", INFO);
   timeClient.end();
-
+  ESP.wdtFeed();
   message(" ----> Closing WEB Server...", INFO);
   server.close();
-
+  ESP.wdtFeed();
   message(" ----> Disconnecting WIFI...", INFO);
   WiFi.disconnect();
+  ESP.wdtFeed();
   message(" ----> Disabling WiFi...", INFO);
   WiFi.mode(WIFI_OFF);
+  ESP.wdtFeed();
   message(" ----> WiFi disabled...", INFO);
 
   yield();
