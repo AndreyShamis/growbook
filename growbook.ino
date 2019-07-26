@@ -241,12 +241,13 @@ void setup(void) {
   message("SPIFFS startted.", PASS);
   //message("Compile SPIFFS", INFO);
   //  SPIFFS.format();
-  message("DHT start AUTO_DETECT mode...");
-  dht.setup(DHT_HUMIDITY_PIN, DHTesp::AUTO_DETECT);   //
+  message("DHT start DHT22 mode...");
+  dht.setup(DHT_HUMIDITY_PIN, DHTesp::DHT22);   //
   TempAndHumidity _t = read_dht();
-  if (_t.humidity == NAN) {
-    message("DHT auto detect failed. Seting DHT22");
-    dht.setup(DHT_HUMIDITY_PIN, DHTesp::DHT22);
+  message("_t value.humidity " + String(_t.humidity));
+  if (_t.humidity == NAN || _t.humidity < 5) {
+    message("DHT auto detect failed. Seting AUTO_DETECT");
+    dht.setup(DHT_HUMIDITY_PIN, DHTesp::AUTO_DETECT);
     _t = read_dht();
     if (_t.humidity == NAN) {
       message("DHT22 detect failed. Seting DHT11");
@@ -305,6 +306,7 @@ void loop(void) {
       reconnect_cnv();
     }
   }
+
   check_light();
   if (counter % CHECK_HUMIDITY_COUNTER == 0) {
     read_dht();
