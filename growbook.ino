@@ -68,7 +68,7 @@
    For example loop_delay=10, counter sec will be 100 , when (counter%100 == 0) happens every second
 */
 #define COUNTER_IN_LOOP_SECOND              (int)(1000/LOOP_DELAY)
-#define CHECK_HUMIDITY_COUNTER              (COUNTER_IN_LOOP_SECOND*5) // every 5 seconds
+#define CHECK_HUMIDITY_COUNTER              (COUNTER_IN_LOOP_SECOND*30) // every 5 seconds
 #define CALL_SERVER_COUNTER                 (COUNTER_IN_LOOP_SECOND*10)
 #define CHECK_SENSORS                       (COUNTER_IN_LOOP_SECOND*20) //(COUNTER_IN_LOOP_SECOND*3)
 #define NTP_UPDATE_COUNTER                  (COUNTER_IN_LOOP_SECOND*60*3)
@@ -163,7 +163,7 @@ float               current_temp[NUMBER_OF_SENSORS];
     Additionaly you can specify the update interval (in milliseconds, can be changed using setUpdateInterval()). */
 NTPClient           timeClient(ntpUDP, NTP_SERVER, NTP_TIME_OFFSET_SEC, NTP_UPDATE_INTERVAL_MS);
 HTTPClient          httpClient;    //Declare object of class HTTPClient
-DHTesp              dht;
+DHTesp              dhtMain;
 float               temp_sum_value_prev = 0;
 float               temp_min_value_prev = 0;
 float               temp_max_value_prev = 0;
@@ -241,34 +241,9 @@ void setup(void) {
   message("SPIFFS startted.", PASS);
   //message("Compile SPIFFS", INFO);
   //  SPIFFS.format();
-  message("DHT start DHT22 mode...");
-  dht.setup(DHT_HUMIDITY_PIN, DHTesp::DHT22);   //
-  TempAndHumidity _t = read_dht();
-  message("_t value.humidity " + String(_t.humidity));
-  if (_t.humidity == NAN || _t.humidity < 5) {
-    message("DHT auto detect failed. Seting AUTO_DETECT");
-    dht.setup(DHT_HUMIDITY_PIN, DHTesp::AUTO_DETECT);
-    _t = read_dht();
-    if (_t.humidity == NAN) {
-      message("DHT22 detect failed. Seting DHT11");
-      dht.setup(DHT_HUMIDITY_PIN, DHTesp::DHT11);
-      _t = read_dht();
-      if (_t.humidity == NAN) {
-        message("DHT11 detect failed. Seting AUTO_DETECT");
-        dht.setup(DHT_HUMIDITY_PIN, DHTesp::AUTO_DETECT);
-      } else {
-        message("DHT11 success.", PASS);
-      }
-    } else {
-      message("DHT22 success.", PASS);
-    }
-  } else {
-    message("DHT AUTO_DETECT success.", PASS);
-  }
 
-  //dht.setup(DHT_HUMIDITY_PIN, DHTesp::DHT22); //for DHT22
-  String dht_model = "DHT" + String(dht.getModel()) + String(dht.getModel());
-  message("DHT MODEL :" + dht_model, INFO);
+  dhtMain = startSensor(dhtMain, DHT_HUMIDITY_PIN);
+
   //Serial.println(build_index());
   wifi_connect();
   server_start();
@@ -309,7 +284,7 @@ void loop(void) {
 
   check_light();
   if (counter % CHECK_HUMIDITY_COUNTER == 0) {
-    read_dht();
+    read_dht(dhtMain);
   }
   // SENSORS  ---------------------------------------------------------------------------------------
   if (counter % CHECK_SENSORS == 0) {
@@ -490,8 +465,8 @@ bool sonsors_dallas() {
   return true;
 }
 
-TempAndHumidity read_dht() {
-  TempAndHumidity ret = dht.getTempAndHumidity();
+TempAndHumidity read_dht(DHTesp &dhtSensor) {
+  TempAndHumidity ret = dhtSensor.getTempAndHumidity();
   humidity_value = ret.humidity;
   return ret;
 }
@@ -500,18 +475,22 @@ TempAndHumidity read_dht() {
     Humidity sensor
 */
 bool sonsors_dht() {
-  TempAndHumidity ret = read_dht();
-  float heat_index = dht.computeHeatIndex(ret.temperature, ret.humidity, false);
-  float dewPoint = dht.computeDewPoint(ret.temperature, ret.humidity, false);
-  float absoluteHumidity = dht.computeAbsoluteHumidity(ret.temperature, ret.humidity, false);
+  return sonsor_dht(dhtMain);
+}
+
+bool sonsor_dht(DHTesp &dhtSensor) {
+  TempAndHumidity ret = read_dht(dhtSensor);
+  float heat_index = dhtSensor.computeHeatIndex(ret.temperature, ret.humidity, false);
+  float dewPoint = dhtSensor.computeDewPoint(ret.temperature, ret.humidity, false);
+  float absoluteHumidity = dhtSensor.computeAbsoluteHumidity(ret.temperature, ret.humidity, false);
   bool epoch_trigger = timeClient.getEpochTime() % 17 == 0;
-  sensorsSingleLog += String(" \t Humidity:") + "DHT Status [" + dht.getStatusString() + "]\tHumidity: [" + ret.humidity + "%] \t TMP:" + ret.temperature + "C - Heat Index: [" + heat_index + " C]" + " DewPoint : " + String(dewPoint) + " absoluteHumidity:" + String(absoluteHumidity) + " dec size:" + String(dht.getNumberOfDecimalsHumidity());
+  sensorsSingleLog += String(" \t Humidity:") + "DHT Status [" + dhtSensor.getStatusString() + "]\tHumidity: [" + ret.humidity + "%] \t TMP:" + ret.temperature + "C - Heat Index: [" + heat_index + " C]" + " DewPoint : " + String(dewPoint) + " absoluteHumidity:" + String(absoluteHumidity) + " dec size:" + String(dhtSensor.getNumberOfDecimalsHumidity());
   if (fabs(humidity_value_prev - ret.humidity)  > MIN_HUMIDITY_TH || epoch_trigger) {
     if (epoch_trigger) {
       message("- ---          ****************************** ---------- EPOCH TRIGGER ----------------------------- DHT");
     }
-    String model = String("DHT") + String(dht.getModel()) + String(dht.getModel());
-    growBookPostEvent(String(ret.humidity), model + "_-_" + String(WiFi.hostname()) + String("_-_0"), TypeNames[HUMIDITY], String(absoluteHumidity), String(ret.temperature), String(heat_index));
+    String model = String("DHT") + String(dhtSensor.getModel()) + String(dhtSensor.getModel());
+    growBookPostEvent(String(ret.humidity), model + "_-_" + String(WiFi.hostname()) + String("_-_") + String(dhtSensor.pin), TypeNames[HUMIDITY], String(absoluteHumidity), String(ret.temperature), String(heat_index));
   }
   //  if (humidity < 10 || (humidity > 90 && humidity <= 100)) {
   //    growBookPostValue("humidity", String(humidity));
@@ -610,6 +589,38 @@ void growBookPostValues() {
   postData += "&cpu_freq=" + urlencode(String(ESP.getCpuFreqMHz())) + "&" + urlencode("sdk_version") + "=" + urlencode(String(ESP.getSdkVersion()));
 
   postTo(url, postData);
+}
+
+
+DHTesp startSensor(DHTesp &dhtSensor, const unsigned int pin)
+{
+  message("DHT start DHT22 mode...");
+  dhtSensor.setup(pin, DHTesp::AM2302);   //
+  TempAndHumidity _t = read_dht(dhtSensor);
+  message("_t value.humidity " + String(_t.humidity));
+  if (_t.humidity == NAN || String(_t.humidity) == "nan" || _t.humidity < 5) {
+    message("DHT auto detect failed. Seting AUTO_DETECT. Value " + String(_t.humidity));
+    dhtSensor.setup(pin, DHTesp::AUTO_DETECT);
+    _t = read_dht(dhtSensor);
+    if (_t.humidity == NAN || String(_t.humidity) == "nan" ) {
+      message("DHT22 detect failed. Seting DHT11. Value " + String(_t.humidity));
+      dhtSensor.setup(pin, DHTesp::DHT11);
+      _t = read_dht(dhtSensor);
+      if (_t.humidity == NAN || String(_t.humidity) == "nan" ) {
+        message("DHT11 detect failed. Seting AUTO_DETECT. Value " + String(_t.humidity));
+        dhtSensor.setup(pin, DHTesp::AUTO_DETECT);
+      } else {
+        message("DHT11 success.", PASS);
+      }
+    } else {
+      message("DHT22 success.", PASS);
+    }
+  } else {
+    message("DHT AUTO_DETECT success.", PASS);
+  }
+  String dht_model = "DHT" + String(dhtSensor.getModel()) + String(dhtSensor.getModel());
+  message("DHT MODEL :" + dht_model, INFO);
+  return dhtSensor;
 }
 
 /**
@@ -1057,7 +1068,7 @@ void print_all_info() {
   message("MIN_TEMPERATURE_TH \t:" + String(MIN_TEMPERATURE_TH), INFO);
   message("MIN_HUMIDITY_TH \t:" + String(MIN_HUMIDITY_TH), INFO);
   message("CHECK_INTERNET_CONNECT \t:" + String(CHECK_INTERNET_CONNECT), INFO);
-  message("DHTesp_MODEL \t:" + String(dht.getModel()), INFO);
+  message("DHTesp_MODEL \t:" + String(dhtMain.getModel()), INFO);
   message("HostName: " + WiFi.hostname() + " |Ch: " + String(WiFi.channel()) + " |RSSI: " + WiFi.RSSI() + " |MAC: " + WiFi.macAddress() + " \t Flash Chip Id/Size/Speed/Mode: " + String(ESP.getFlashChipId()) + "/" + String(ESP.getFlashChipSize()) + "/" + String(ESP.getFlashChipSpeed()) + "/" + String(ESP.getFlashChipMode()), INFO);
   message("SdkVersion: " + String(ESP.getSdkVersion()) + "\tCoreVersion: " + ESP.getCoreVersion() + "\tBootVersion: " + ESP.getBootVersion() + "\t CpuFreqMHz: " + String(ESP.getCpuFreqMHz()) + " \tBootMode: " + String(ESP.getBootMode()) + "\tSketchSize: " + String(ESP.getSketchSize()) + "\tFreeSketchSpace: " + String(ESP.getFreeSketchSpace()), INFO);
   //message("getResetReason: " + ESP.getResetReason() + " |getResetInfo: " + ESP.getResetInfo() + " |Address : " + getAddressString(insideThermometer[0]), INFO);
