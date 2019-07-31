@@ -74,8 +74,8 @@
 #define NTP_UPDATE_COUNTER                  (COUNTER_IN_LOOP_SECOND*60*3)
 #define CHECK_INTERNET_CONNECTIVITY_CTR     (COUNTER_IN_LOOP_SECOND*120)
 
-#define GROWBOOK_URL                        "http://192.168.1.206:8082/"
-//#define GROWBOOK_URL                        "http://growbook.anshamis.com/"
+//#define GROWBOOK_URL                        "http://192.168.1.206:8082/"
+#define GROWBOOK_URL                        "http://growbook.anshamis.com/"
 
 /*******************************************************************************************************/
 enum LogType {
@@ -490,7 +490,7 @@ bool sonsor_dht(DHTesp &dhtSensor) {
       message("- ---          ****************************** ---------- EPOCH TRIGGER ----------------------------- DHT");
     }
     String model = String("DHT") + String(dhtSensor.getModel()) + String(dhtSensor.getModel());
-    growBookPostEvent(String(ret.humidity), model + "_-_" + String(WiFi.hostname()) + String("_-_") + String(dhtSensor.pin), TypeNames[HUMIDITY], String(absoluteHumidity), String(ret.temperature), String(heat_index));
+    growBookPostEvent(String(ret.humidity), model + "_-_" + String(WiFi.hostname()) + String("_-_") + String(dhtSensor.getPin()), TypeNames[HUMIDITY], String(absoluteHumidity), String(ret.temperature), String(heat_index));
   }
   //  if (humidity < 10 || (humidity > 90 && humidity <= 100)) {
   //    growBookPostValue("humidity", String(humidity));
@@ -595,7 +595,7 @@ void growBookPostValues() {
 DHTesp startSensor(DHTesp &dhtSensor, const unsigned int pin)
 {
   message("DHT start DHT22 mode...");
-  dhtSensor.setup(pin, DHTesp::AM2302);   //
+  dhtSensor.setup(pin, DHTesp::DHT22);   //
   TempAndHumidity _t = read_dht(dhtSensor);
   message("_t value.humidity " + String(_t.humidity));
   if (_t.humidity == NAN || String(_t.humidity) == "nan" || _t.humidity < 5) {
