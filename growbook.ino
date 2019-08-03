@@ -74,7 +74,7 @@
 #define CALL_SERVER_COUNTER                 (COUNTER_IN_LOOP_SECOND*10)
 #define CHECK_SENSORS                       (COUNTER_IN_LOOP_SECOND*20) //(COUNTER_IN_LOOP_SECOND*3)
 
-#define CHECK_SENSORS_1                     ((COUNTER_IN_LOOP_SECOND+1)*5)
+#define CHECK_SENSORS_1                     ((COUNTER_IN_LOOP_SECOND+1)*10)
 #define CHECK_SENSORS_2                     (COUNTER_IN_LOOP_SECOND*22+2)
 #define CHECK_SENSORS_3                     (COUNTER_IN_LOOP_SECOND*23+3)
 #define CHECK_SENSORS_4                     (COUNTER_IN_LOOP_SECOND*27+4)
@@ -340,7 +340,7 @@ void loop(void) {
 
   }
   // SENSORS  ---------------------------------------------------------------------------------------
-  if (counter % 1200 == 0) {
+  if (counter % 600 == 0) {
     read_cmd_flow();
   }
   if (counter % CHECK_SENSORS_1 == 0) {
@@ -383,7 +383,7 @@ void loop(void) {
 
   if (counter % NTP_UPDATE_COUNTER == 0) {
     if (internet_access) {
-      message("Starting update the time...CUNTER:" + String(counter) + " REG:" + String(CHECK_INTERNET_CONNECTIVITY_CTR), DEBUG);
+      message("Starting update the time...", DEBUG);
       update_time();
     }
   }
@@ -412,16 +412,15 @@ void read_cmd_flow()
   sscanf(buff, "%s ^ %s ^^", &key, &value);
   if (key.length() > 1)
   {
-    message("rEAD cmd:" + output + " KEY=" + String(key) + " VALUE=" + value);
+    message("READ cmd:" + output + " KEY=" + String(key) + " VALUE=" + value);
     if (key == "reboot" && value.toInt() == 1) {
       message("Resetting ESP" , WARNING);
       delay(500);
       ESP.restart();
     }
   }
-
-
 }
+
 bool sensors_hydrometer() {
   float hydro_value = analogRead(HYDROMETER_PIN);
   float hydro_value_src = hydro_value;
@@ -554,6 +553,7 @@ bool sonsors_dht() {
 
 bool sonsor_dht(DHTesp &dhtSensor) {
   TempAndHumidity ret = read_dht(dhtSensor);
+  delay(20);
   float heat_index = dhtSensor.computeHeatIndex(ret.temperature, ret.humidity, false);
   float dewPoint = dhtSensor.computeDewPoint(ret.temperature, ret.humidity, false);
   float absoluteHumidity = dhtSensor.computeAbsoluteHumidity(ret.temperature, ret.humidity, false);
@@ -564,7 +564,9 @@ bool sonsor_dht(DHTesp &dhtSensor) {
       message("- ---          ****************************** ---------- EPOCH TRIGGER ----------------------------- DHT");
     }
     String model = String("DHT") + String(dhtSensor.getModel()) + String(dhtSensor.getModel());
-    growBookPostEvent(String(ret.humidity), model + "_-_" + String(WiFi.hostname()) + String("_-_") + String(dhtSensor.getPin()), TypeNames[HUMIDITY], String(absoluteHumidity), String(ret.temperature), String(heat_index));
+    if (String(heat_index) != "nan") {
+      growBookPostEvent(String(ret.humidity), model + "_-_" + String(WiFi.hostname()) + String("_-_") + String(dhtSensor.getPin()), TypeNames[HUMIDITY], String(absoluteHumidity), String(ret.temperature), String(heat_index));
+    }
   }
   //  if (humidity < 10 || (humidity > 90 && humidity <= 100)) {
   //    growBookPostValue("humidity", String(humidity));
