@@ -13,7 +13,8 @@
       7. Added \_FLAG_FORCE_TMP_CHECK, When true will cause to immediately check, used also when thermometer wire were troubled
 
 */
-
+#include "Arduino.h"
+#include "Esp.h"
 #include <NTPClient.h>
 #include <Wire.h>
 #include <ESP8266WiFi.h>
@@ -26,6 +27,7 @@
 #include <DallasTemperature.h>
 #include "DHTesp.h"
 #include <ESP8266HTTPClient.h>
+#include <Ticker.h>
 
 /*******************************************************************************************************/
 // WiFi settings
@@ -71,12 +73,25 @@
 #define CHECK_HUMIDITY_COUNTER              (COUNTER_IN_LOOP_SECOND*30) // every 5 seconds
 #define CALL_SERVER_COUNTER                 (COUNTER_IN_LOOP_SECOND*10)
 #define CHECK_SENSORS                       (COUNTER_IN_LOOP_SECOND*20) //(COUNTER_IN_LOOP_SECOND*3)
+
+#define CHECK_SENSORS_1                     (COUNTER_IN_LOOP_SECOND*20)
+#define CHECK_SENSORS_2                     (COUNTER_IN_LOOP_SECOND*22)
+#define CHECK_SENSORS_3                     (COUNTER_IN_LOOP_SECOND*24)
+#define CHECK_SENSORS_4                     (COUNTER_IN_LOOP_SECOND*25)
+#define CHECK_SENSORS_5                     (COUNTER_IN_LOOP_SECOND*30)
+#define CHECK_SENSORS_6                     (COUNTER_IN_LOOP_SECOND*50)
+#define CHECK_SENSORS_7                     (COUNTER_IN_LOOP_SECOND*100)
+#define CHECK_SENSORS_8                     (COUNTER_IN_LOOP_SECOND*150)
+
 #define NTP_UPDATE_COUNTER                  (COUNTER_IN_LOOP_SECOND*60*3)
 #define CHECK_INTERNET_CONNECTIVITY_CTR     (COUNTER_IN_LOOP_SECOND*120)
 
-//#define GROWBOOK_URL                        "http://192.168.1.206:8082/"
-#define GROWBOOK_URL                        "http://growbook.anshamis.com/"
+#define GROWBOOK_URL                        "http://192.168.1.206:8082/"
+//#define GROWBOOK_URL                        "http://growbook.anshamis.com/"
 
+
+// INTERRUPT
+#define INTERRUPT_TIME                      120000000                //  600000      //12us
 /*******************************************************************************************************/
 enum LogType {
   INFO      = 0,
@@ -171,9 +186,12 @@ float               hydro_value_prev = -1;
 float               humidity_value_prev = 0;
 float               humidity_value = 0;
 bool                light_enabled = false;
-unsigned long       boot_time = 0;
-unsigned long       uptime = 0;
+volatile unsigned long       boot_time = 0;
+volatile unsigned long       uptime = 0;
 WiFiClient          wifi_client;
+
+volatile bool       update_time_flag = false;
+//volatile unsigned int        interruptCounter = 0;
 /*******************************************************************************************************/
 
 //ADC_MODE(ADC_VCC);              // This disable ADC read!
@@ -182,6 +200,23 @@ float   getTemperature(const int dev = 0);
  ****************************************************************************************************
  ****************************************************************************************************
 */
+
+
+//=======================================================================
+void ICACHE_RAM_ATTR onTimerISR()
+{
+  //if (interruptCounter % 4 == 0) {
+  if (boot_time > 0 && !update_time_flag) {
+    uptime = timeClient.getEpochTime() - boot_time;
+  }
+  //}
+  //message("Tick");
+  //interruptCounter++;
+  //  if (interruptCounter > 30000) {
+  //    interruptCounter = 0;
+  //  }
+  timer1_write(INTERRUPT_TIME);//12us
+}
 
 /**
   Setup the controller
@@ -250,16 +285,42 @@ void setup(void) {
   timeClient.begin();
   start_thermal();
   //timeClient.update();
-  delay(200);
+  delay(1000);
   timeClient.forceUpdate();
+  delay(1000);
   message(" ----> All started <----", PASS);
+  delay(1000);
+  wifi_check();
   print_all_info();
-
+  delay(1000);
 
   ESP.wdtEnable(10000);
+  delay(1000);
   ESP.wdtDisable();
-
+  delay(1000);
+  delay(1000);
+  check_connectivity(true);
+  while (counter < 100) {
+    if ((CHECK_INTERNET_CONNECT && internet_access) || !CHECK_INTERNET_CONNECT) {
+      message(" ----> internet_access is OK<----", PASS);
+      break;
+    }
+    ESP.wdtFeed();
+    delay(100);
+    counter += 1;
+    if (counter == 50) {
+      check_connectivity(true);
+    }
+    message("internet_access: " + String(internet_access) + " CHECK_INTERNET_CONNECT:" + String(CHECK_INTERNET_CONNECT), PASS);
+  }
+  counter = 0;
+  update_time();
+  message(" ----> Start Loop <----", PASS);
+  timer1_attachInterrupt(onTimerISR);
+  timer1_enable(TIM_DIV16, TIM_EDGE, TIM_SINGLE);
+  timer1_write(INTERRUPT_TIME); //120000 us
 }
+
 
 /**
   /////////////////////// L O O P   F U N C T I O N //////////////////////////
@@ -268,98 +329,104 @@ void setup(void) {
 
 void loop(void) {
   // WEB SERVER
-  server.handleClient();
-  ESP.wdtFeed();
-  // WIFI CHECK
-  if (WiFi.status() != WL_CONNECTED) {
-    internet_access = 0;
-    delay(2000);
-    ESP.wdtFeed();
-    // Check if not connected , disable all network services, reconnect , enable all network services
-    if (WiFi.status() != WL_CONNECTED) {
-      message("WIFI DISCONNECTED", FAIL_t);
-      reconnect_cnv();
-    }
+  if (internet_access && (boot_time == 0 || boot_time < INCORRECT_EPOCH)) {
+    boot_time = timeClient.getEpochTime();
+    message("Boot time updated...", DEBUG);
   }
 
-  check_light();
+  server.handleClient();
+  ESP.wdtFeed();
+  wifi_check();
+
+  check_light(false);
   if (counter % CHECK_HUMIDITY_COUNTER == 0) {
     read_dht(dhtMain);
   }
   // SENSORS  ---------------------------------------------------------------------------------------
-  if (counter % CHECK_SENSORS == 0) {
-    sensorsSingleLog = "";
+  if (counter % 10 == 0) {
+        message("rEAD cmd:" + read_cmd(""));
+
+  }
+  if (counter % CHECK_SENSORS_1 == 0) {
+    check_light(false);
+  }
+  if (counter % CHECK_SENSORS_2 == 0) {
     sonsors_dallas();
-    delay(10);
+    check_light(false);
+  }
+  if (counter % CHECK_SENSORS_3 == 0) {
+    
+  }
+  if (counter % CHECK_SENSORS_4 == 0) {
+
+  }
+  if (counter % CHECK_SENSORS_5 == 0) {
     sensors_hydrometer();
-    delay(20);
-    ESP.wdtFeed();
-    sonsors_dht();
-    delay(30);
-    ESP.wdtFeed();
+    check_light(false);
+  }
+  if (counter % CHECK_SENSORS_6 == 0) {
     sensors_light();
-    delay(40);
+  }
+  if (counter % CHECK_SENSORS_7 == 0) {
+  }
+  if (counter % CHECK_SENSORS_8 == 0) {
+    sonsors_dht();
+    check_light(false);
+  }
+  //    sensorsSingleLog = "";
+  //
+  //    delay(10);
+  //
+  //    delay(20);
+  //    ESP.wdtFeed();
+  //
+  //    delay(30);
+  //    ESP.wdtFeed();
+  //
+  //    delay(40);
+  //    ESP.wdtFeed();
+  //    message(sensorsSingleLog, INFO);
+
+  if (counter % CALL_SERVER_COUNTER == 0 && internet_access) {
+    growBookPostValues();
     ESP.wdtFeed();
-    message(sensorsSingleLog, INFO);
-  } else {
-    if (counter % CALL_SERVER_COUNTER == 0 && internet_access) {
-      growBookPostValues();
-      ESP.wdtFeed();
-    }
   }
 
-  // CEONNECTIVITY - CHECK PING
-  if (CHECK_INTERNET_CONNECT) {
-    if (counter % CHECK_INTERNET_CONNECTIVITY_CTR == 0 || !internet_access) {
-      bool _ia = internet_access;
-      internet_access = Ping.ping(pingServer, 2);
-      if (!_ia) {
-        message("Ping result is " + String(internet_access) + " avg_time_ms:" + String(Ping.averageTime()), INFO);
-      }
-
-      if (!internet_access) {
-        internet_access_failures++;
-        delay(500);
-      } else {
-        internet_access_failures = 0;
-      }
-    }
-
-    if (internet_access_failures >= RECONNECT_AFTER_FAILS) {
-      message("No Internet connection. internet_access_failures FLAG, reconnecting all.", CRITICAL);
-      internet_access_failures = 0;
-      reconnect_cnv();
-    }
-  }
+  check_connectivity(false);
   if (counter == 20) {
     print_all_info();
 
   }
-  if (counter % NTP_UPDATE_COUNTER == 0 || boot_time < INCORRECT_EPOCH) {
+
+  if (counter % NTP_UPDATE_COUNTER == 0) {
     if (internet_access) {
       message("Starting update the time...", DEBUG);
       update_time();
-      if (boot_time == 0 && timeClient.getEpochTime() > INCORRECT_EPOCH) {
-        message("Update boot_time = " + String(timeClient.getEpochTime()), INFO);
-        boot_time = timeClient.getEpochTime();
-      }
+      //      if (boot_time == 0 && timeClient.getEpochTime() > INCORRECT_EPOCH) {
+      //        message("Update boot_time = " + String(timeClient.getEpochTime()), INFO);
+      //        boot_time = timeClient.getEpochTime();
+      //      }
     }
   }
-  //ESP.deepSleep(sleepTimeS * 1000000, RF_DEFAULT);
-  delay(LOOP_DELAY);
+  check_light(false);
+  delay(LOOP_DELAY/3);
+  check_light(false);
+  delay(LOOP_DELAY/3);
+  check_light(false);
+  delay(LOOP_DELAY/3);
+  check_light(false);
   counter++;
   if (counter >= 16000) {
     counter = 0;
-    //printTemperatureToSerial();
   }
-  uptime = timeClient.getEpochTime() - boot_time;
+  //uptime = timeClient.getEpochTime() - boot_time;
 }
 
 bool sensors_hydrometer() {
   float hydro_value = analogRead(HYDROMETER_PIN);
   float hydro_value_src = hydro_value;
   hydro_value = map(hydro_value, 0, 1024, 1000, 0) / 10.0;
-  sensorsSingleLog += " HYDRO:[" + String(hydro_value) + " :src=" + hydro_value_src + "]";
+  //sensorsSingleLog += " HYDRO:[" + String(hydro_value) + " :src=" + hydro_value_src + "]";
   String model = "HYDRO_" + String(HYDROMETER_PIN) + "_";
   bool epoch_trigger = timeClient.getEpochTime() % 7 == 0;
   if (hydro_value >= 0 && hydro_value <= 100) {
@@ -375,27 +442,34 @@ bool sensors_hydrometer() {
   return true;
 }
 
-bool check_light() {
+bool check_light(bool verbose) {
   int digitalVal = digitalRead(LIGHT_SENSOR_D0);    // Read the digital interface
   bool change_found = false;
   if (digitalVal == HIGH) {
     if (light_enabled) {
       change_found = true;
-      message("Light is OFF", DEBUG);
+      if (verbose) {
+        message("Light is OFF", DEBUG);
+      }
+
     }
     light_enabled = false;
   } else {
     if (!light_enabled) {
       change_found = true;
-      message("Light is ON", DEBUG);
+      if (verbose) {
+        message("Light is ON", DEBUG);
+      }
     }
     light_enabled = true;
   }
 
   if (change_found) {
     growBookPostValue("light", String(light_enabled));
+    if (verbose) {
+      message("Light is OFF", DEBUG);
+    }
   }
-
   return light_enabled;
 }
 /**
@@ -403,8 +477,8 @@ bool check_light() {
 */
 bool sensors_light() {
 
-  check_light();
-  sensorsSingleLog += " LIGHT IS " + String(light_enabled) + " ";
+  check_light(true);
+  //sensorsSingleLog += " LIGHT IS " + String(light_enabled) + " ";
   //if (change_found) {
   String serail = "LDR_" + String(WiFi.hostname()) + String("_" + String(LIGHT_SENSOR_D0));
   growBookPostValue("light", String(light_enabled));
@@ -414,7 +488,7 @@ bool sensors_light() {
 }
 
 bool sonsors_dallas() {
-  sensorsSingleLog = "Temperature:";
+  //sensorsSingleLog = "Temperature:";
   int devices_count = sensor.getDeviceCount();
   float sum_tmp = 0;
   temp_max_value_prev = LOW_TEMPERATURE;
@@ -445,7 +519,7 @@ bool sonsors_dallas() {
       sum_tmp += current_temp[i];
       temp_max_value_prev = max(temp_max_value_prev, current_temp[i]);
       temp_min_value_prev = min(temp_min_value_prev, current_temp[i]);
-      sensorsSingleLog += " \t " + String(i) + ": " + String(current_temp[i]) + " C \t | ";
+      // sensorsSingleLog += " \t " + String(i) + ": " + String(current_temp[i]) + " C \t | ";
       bool epoch_trigger = timeClient.getEpochTime() % 7 == 0;
       if (fabs(tmp_diff) > MIN_TEMPERATURE_TH || epoch_trigger) {
         if (epoch_trigger) {
@@ -484,7 +558,7 @@ bool sonsor_dht(DHTesp &dhtSensor) {
   float dewPoint = dhtSensor.computeDewPoint(ret.temperature, ret.humidity, false);
   float absoluteHumidity = dhtSensor.computeAbsoluteHumidity(ret.temperature, ret.humidity, false);
   bool epoch_trigger = timeClient.getEpochTime() % 17 == 0;
-  sensorsSingleLog += String(" \t Humidity:") + "DHT Status [" + dhtSensor.getStatusString() + "]\tHumidity: [" + ret.humidity + "%] \t TMP:" + ret.temperature + "C - Heat Index: [" + heat_index + " C]" + " DewPoint : " + String(dewPoint) + " absoluteHumidity:" + String(absoluteHumidity) + " dec size:" + String(dhtSensor.getNumberOfDecimalsHumidity());
+  //sensorsSingleLog += String(" \t Humidity:") + "DHT Status [" + dhtSensor.getStatusString() + "]\tHumidity: [" + ret.humidity + "%] \t TMP:" + ret.temperature + "C - Heat Index: [" + heat_index + " C]" + " DewPoint : " + String(dewPoint) + " absoluteHumidity:" + String(absoluteHumidity) + " dec size:" + String(dhtSensor.getNumberOfDecimalsHumidity());
   if (fabs(humidity_value_prev - ret.humidity)  > MIN_HUMIDITY_TH || epoch_trigger) {
     if (epoch_trigger) {
       message("- ---          ****************************** ---------- EPOCH TRIGGER ----------------------------- DHT");
@@ -530,6 +604,41 @@ void growBookPostValue(String key, String value) {
   postTo(url, postData);
 }
 
+String read_cmd(const String &postData) {
+  String ret = "";
+  if ((CHECK_INTERNET_CONNECT && internet_access) || !CHECK_INTERNET_CONNECT) {
+    String url = "plant/read_cmd/" + urlencode(WiFi.hostname());
+    String int_url = String(GROWBOOK_URL) + url;
+    message(int_url + " : \t" + String("postData:") + postData, DEBUG); // Print HTTP return code
+    httpClient.begin(wifi_client, int_url);
+    httpClient.setTimeout(4000);
+    httpClient.addHeader("Content-Type", "application/x-www-form-urlencoded");  //Specify content-type header
+    ESP.wdtDisable();
+    ESP.wdtFeed();
+    int httpCode = httpClient.POST(postData); // Send the request
+    ESP.wdtFeed();
+    ESP.wdtEnable(5000);
+    //  if ( httpCode == HTTP_CODE_OK) {
+    if (httpCode < 0) {
+      message(String(" !  -  Code:") + String(httpCode) + " " + String(" \t Message :") + httpClient.errorToString(httpCode) , DEBUG);
+    }
+    else {
+      
+      if (httpCode == HTTP_CODE_FOUND || httpCode == HTTP_CODE_OK) {
+        ret = httpClient.getString(); // Get the response payload
+        //message(String(" +  Code:") + String(httpCode) + " PayLoad:" + String(payload), INFO);    //Print request response payload
+      } else {
+        message(String(" -  Code:") + String(httpCode));// + " PayLoad:" + String(payload), DEBUG);    //Print request response payload
+      }
+    }
+    httpClient.end();
+  } else {
+    message("No internet access", DEBUG);
+    delay(20);
+  }
+  return ret;
+}
+
 void postTo(const String &url, const String &postData) {
   if ((CHECK_INTERNET_CONNECT && internet_access) || !CHECK_INTERNET_CONNECT) {
     String int_url = String(GROWBOOK_URL) + url;
@@ -547,11 +656,11 @@ void postTo(const String &url, const String &postData) {
       message(String(" !  -  Code:") + String(httpCode) + " " + String(" \t Message :") + httpClient.errorToString(httpCode) , DEBUG);
     }
     else {
-      String payload = httpClient.getString(); // Get the response payload
+      //String payload = httpClient.getString(); // Get the response payload
       if (httpCode == HTTP_CODE_FOUND || httpCode == HTTP_CODE_OK) {
         //message(String(" +  Code:") + String(httpCode) + " PayLoad:" + String(payload), INFO);    //Print request response payload
       } else {
-        message(String(" -  Code:") + String(httpCode) + " PayLoad:" + String(payload), DEBUG);    //Print request response payload
+        message(String(" -  Code:") + String(httpCode));// + " PayLoad:" + String(payload), DEBUG);    //Print request response payload
       }
     }
     httpClient.end();
@@ -621,6 +730,58 @@ DHTesp startSensor(DHTesp &dhtSensor, const unsigned int pin)
   String dht_model = "DHT" + String(dhtSensor.getModel()) + String(dhtSensor.getModel());
   message("DHT MODEL :" + dht_model, INFO);
   return dhtSensor;
+}
+
+/**
+
+*/
+bool check_connectivity(bool force)
+{
+  // CEONNECTIVITY - CHECK PING
+  if (CHECK_INTERNET_CONNECT || force) {
+    if (counter % CHECK_INTERNET_CONNECTIVITY_CTR == 0 || !internet_access || force) {
+      bool _ia = internet_access;
+      internet_access = Ping.ping(pingServer, 2);
+      if (!_ia) {
+        message("Ping result is " + String(internet_access) + " avg_time_ms:" + String(Ping.averageTime()), INFO);
+      }
+
+      if (!internet_access) {
+        internet_access_failures++;
+        delay(500);
+      } else {
+        internet_access_failures = 0;
+      }
+    }
+
+    if (internet_access_failures >= RECONNECT_AFTER_FAILS) {
+      message("No Internet connection. internet_access_failures FLAG, reconnecting all.", CRITICAL);
+      internet_access_failures = 0;
+      reconnect_cnv();
+    }
+  } else {
+    return true;
+  }
+  return internet_access;
+}
+
+/**
+
+*/
+void wifi_check()
+{
+  // WIFI CHECK
+  if (WiFi.status() != WL_CONNECTED) {
+    internet_access = 0;
+    delay(2000);
+    ESP.wdtFeed();
+    // Check if not connected , disable all network services, reconnect , enable all network services
+    if (WiFi.status() != WL_CONNECTED) {
+      message("WIFI DISCONNECTED", FAIL_t);
+      reconnect_cnv();
+      delay(1000);
+    }
+  }
 }
 
 /**
@@ -830,6 +991,7 @@ String build_index() {
    Update time by NTP client
 */
 void update_time() {
+  update_time_flag = true;
   if (timeClient.getEpochTime() < INCORRECT_EPOCH) {
     unsigned short counter_tmp = 0;
     while (timeClient.getEpochTime() < INCORRECT_EPOCH && counter_tmp < 10) {
@@ -851,6 +1013,7 @@ void update_time() {
     timeClient.forceUpdate();
     timeClient.update();
   }
+  update_time_flag = false;
   message("Time updated." , PASS);
 }
 
