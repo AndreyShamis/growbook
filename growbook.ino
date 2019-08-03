@@ -22,6 +22,7 @@
 #include <WiFiClient.h>
 #include <ESP8266WebServer.h>
 #include <ESP8266mDNS.h>
+#include "ESP8266httpUpdate.h"
 #include "FS.h"
 #include <OneWire.h>
 #include <DallasTemperature.h>
@@ -30,6 +31,7 @@
 #include <Ticker.h>
 
 /*******************************************************************************************************/
+#define   VERSION                           0.3
 // WiFi settings
 #define   WIFI_SSID                         "RadiationG"
 #define   WIFI_PASS                         "polkalol"
@@ -86,7 +88,9 @@
 #define NTP_UPDATE_COUNTER                  (COUNTER_IN_LOOP_SECOND*60*3)
 #define CHECK_INTERNET_CONNECTIVITY_CTR     (COUNTER_IN_LOOP_SECOND*120)
 
+#define GROWBOOK_URL_NO_PORT                "192.168.1.206"
 #define GROWBOOK_URL                        "http://192.168.1.206:8082/"
+
 //#define GROWBOOK_URL                        "http://growbook.anshamis.com/"
 
 
@@ -277,7 +281,7 @@ void setup(void) {
   //message("Compile SPIFFS", INFO);
   //  SPIFFS.format();
 
-  dhtMain = startSensor(dhtMain, DHT_HUMIDITY_PIN);
+
 
   //Serial.println(build_index());
   wifi_connect();
@@ -288,6 +292,7 @@ void setup(void) {
   delay(1000);
   timeClient.forceUpdate();
   delay(1000);
+  dhtMain = startSensor(dhtMain, DHT_HUMIDITY_PIN);
   message(" ----> All started <----", PASS);
   delay(1000);
   wifi_check();
@@ -347,9 +352,9 @@ void loop(void) {
     sonsors_dallas();
     check_light(false);
   }
-//  if (counter % CHECK_SENSORS_2 == 0) {
-//    check_light(false);
-//  }
+  //  if (counter % CHECK_SENSORS_2 == 0) {
+  //    check_light(false);
+  //  }
   //  if (counter % CHECK_SENSORS_3 == 0) {
   //
   //  }
@@ -406,19 +411,77 @@ void read_cmd_flow()
   if (output.length() > 200) {
     return;
   }
-  String key, value = "";
-  char buff[100];
-  output.toCharArray(buff, output.length() + 1);
-  sscanf(buff, "%s ^ %s ^^", &key, &value);
+  String key = getValue(output, ':', 0);
+  String value = getValue(output, ':', 1);
+  //String key, value = "";
+  //char buff[100];
+  message("here Received " + output);
+  // output.toCharArray(buff, output.length() + 1);
+  //  message("scan buff LEN IS  " + String(output.length()));
+  // sscanf(buff, "%s ^ %s ^^", &key, &value);\
+  // key.trim();
+  //  value.trim();
+  message("check KEY len " + String(key.length()));
   if (key.length() > 1)
   {
-    message("READ cmd:" + output + " KEY=" + String(key) + " VALUE=" + value);
+    message("Print msg");
+    message("READ cmd:" + output + " KEY=" + String(key) + " VALUE=" + String(value));
     if (key == "reboot" && value.toInt() == 1) {
       message("Resetting ESP" , WARNING);
       delay(500);
       ESP.restart();
     }
+    if (key == "firmwareUpdate") {
+      String url = "/1.bin"; // + String(value);
+      delay(500);
+      message("Update firmware from " + String(GROWBOOK_URL_NO_PORT) + url , WARNING);
+
+      delay(500);
+      ESP.wdtFeed();
+      ESP.wdtEnable(30000);
+      ESP.wdtDisable();
+
+      ESP.wdtFeed();
+      ESPhttpUpdate.rebootOnUpdate(true);
+      ESPhttpUpdate.followRedirects(true);
+      message("Start");
+      HTTPUpdateResult ret = ESPhttpUpdate.update(GROWBOOK_URL_NO_PORT , 8082, url);
+      message("END");
+      //HTTPUpdateResult ret = ESPhttpUpdate.update("http://192.168.1.206:8082/firmware/growbook_v0.4.ino.bin");
+      ESP.wdtEnable(5000);
+      ESP.wdtFeed();
+      //HTTPUpdateResult ret = ESPhttpUpdate.update(wifi_client, "http://192.168.1.206:8082/firmware/growbook_v0.4.ino.bin");
+      message("Resetting ESP" , WARNING);
+      switch (ret) {
+        case HTTP_UPDATE_FAILED:
+          message("[update] HTTP_UPDATE_FAILED Update failed." + String(ESPhttpUpdate.getLastError()) + " " + String(ESPhttpUpdate.getLastErrorString().c_str()));
+          break;
+        case HTTP_UPDATE_NO_UPDATES:
+          message("[update] HTTP_UPDATE_NO_UPDATES Update no Update.");
+          break;
+        case HTTP_UPDATE_OK:          
+          message("[update] Update ok."); // may not called we reboot the ESP
+          break;
+      }
+    }
   }
+}
+
+
+String getValue(String data, char separator, int index)
+{
+  int found = 0;
+  int strIndex[] = { 0, -1 };
+  int maxIndex = data.length() - 1;
+
+  for (int i = 0; i <= maxIndex && found <= index; i++) {
+    if (data.charAt(i) == separator || i == maxIndex) {
+      found++;
+      strIndex[0] = strIndex[1] + 1;
+      strIndex[1] = (i == maxIndex) ? i + 1 : i;
+    }
+  }
+  return found > index ? data.substring(strIndex[0], strIndex[1]) : "";
 }
 
 bool sensors_hydrometer() {
@@ -581,7 +644,7 @@ void growBookPostEvent(String value, String sensor, String type, String value1, 
   String url = "event/new?type=" + String(type);
   //    httpClient.setTimeout(5000);
   String postData;
-  postData = String("rssi=") + urlencode(String(WiFi.RSSI())) + "&uptime=" + urlencode(String(uptime)) + "&value=" + urlencode(value) + "&sensor_id=" + urlencode(sensor) + "&note=" + urlencode(note) + "&plant_id=" + urlencode(WiFi.hostname());
+  postData = String("rssi=") + urlencode(String(WiFi.RSSI())) + "&version=" + urlencode(String(VERSION)) + "&uptime=" + urlencode(String(uptime)) + "&value=" + urlencode(value) + "&sensor_id=" + urlencode(sensor) + "&note=" + urlencode(note) + "&plant_id=" + urlencode(WiFi.hostname());
   if ( value1 != "" ) {
     postData += "&value1=" + urlencode(value1);
   }
@@ -707,6 +770,7 @@ DHTesp startSensor(DHTesp &dhtSensor, const unsigned int pin)
 {
   message("DHT start DHT22 mode...");
   dhtSensor.setup(pin, DHTesp::DHT22);   //
+  delay(1000);
   TempAndHumidity _t = read_dht(dhtSensor);
   message("_t value.humidity " + String(_t.humidity));
   if (_t.humidity == NAN || String(_t.humidity) == "nan" || _t.humidity < 5) {
@@ -716,6 +780,7 @@ DHTesp startSensor(DHTesp &dhtSensor, const unsigned int pin)
     if (_t.humidity == NAN || String(_t.humidity) == "nan" ) {
       message("DHT22 detect failed. Seting DHT11. Value " + String(_t.humidity));
       dhtSensor.setup(pin, DHTesp::DHT11);
+      delay(2000);
       _t = read_dht(dhtSensor);
       if (_t.humidity == NAN || String(_t.humidity) == "nan" ) {
         message("DHT11 detect failed. Seting AUTO_DETECT. Value " + String(_t.humidity));
