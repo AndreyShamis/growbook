@@ -70,18 +70,18 @@
    For example loop_delay=10, counter sec will be 100 , when (counter%100 == 0) happens every second
 */
 #define COUNTER_IN_LOOP_SECOND              (int)(1000/LOOP_DELAY)
-#define CHECK_HUMIDITY_COUNTER              (COUNTER_IN_LOOP_SECOND*30) // every 5 seconds
+#define CHECK_HUMIDITY_COUNTER              (COUNTER_IN_LOOP_SECOND*30*4) // every 5 seconds * 4
 #define CALL_SERVER_COUNTER                 (COUNTER_IN_LOOP_SECOND*10)
 #define CHECK_SENSORS                       (COUNTER_IN_LOOP_SECOND*20) //(COUNTER_IN_LOOP_SECOND*3)
 
-#define CHECK_SENSORS_1                     (COUNTER_IN_LOOP_SECOND*20)
-#define CHECK_SENSORS_2                     (COUNTER_IN_LOOP_SECOND*22)
-#define CHECK_SENSORS_3                     (COUNTER_IN_LOOP_SECOND*24)
-#define CHECK_SENSORS_4                     (COUNTER_IN_LOOP_SECOND*25)
-#define CHECK_SENSORS_5                     (COUNTER_IN_LOOP_SECOND*30)
-#define CHECK_SENSORS_6                     (COUNTER_IN_LOOP_SECOND*50)
-#define CHECK_SENSORS_7                     (COUNTER_IN_LOOP_SECOND*100)
-#define CHECK_SENSORS_8                     (COUNTER_IN_LOOP_SECOND*150)
+#define CHECK_SENSORS_1                     ((COUNTER_IN_LOOP_SECOND+1)*5)
+#define CHECK_SENSORS_2                     (COUNTER_IN_LOOP_SECOND*22+2)
+#define CHECK_SENSORS_3                     (COUNTER_IN_LOOP_SECOND*23+3)
+#define CHECK_SENSORS_4                     (COUNTER_IN_LOOP_SECOND*27+4)
+#define CHECK_SENSORS_5                     (COUNTER_IN_LOOP_SECOND*31+5)
+#define CHECK_SENSORS_6                     (COUNTER_IN_LOOP_SECOND*49+6)
+#define CHECK_SENSORS_7                     (COUNTER_IN_LOOP_SECOND*41+7)
+#define CHECK_SENSORS_8                     (COUNTER_IN_LOOP_SECOND*51+8)
 
 #define NTP_UPDATE_COUNTER                  (COUNTER_IN_LOOP_SECOND*60*3)
 #define CHECK_INTERNET_CONNECTIVITY_CTR     (COUNTER_IN_LOOP_SECOND*120)
@@ -292,12 +292,8 @@ void setup(void) {
   delay(1000);
   wifi_check();
   print_all_info();
-  delay(1000);
-
   ESP.wdtEnable(10000);
-  delay(1000);
   ESP.wdtDisable();
-  delay(1000);
   delay(1000);
   check_connectivity(true);
   while (counter < 100) {
@@ -341,25 +337,25 @@ void loop(void) {
   check_light(false);
   if (counter % CHECK_HUMIDITY_COUNTER == 0) {
     read_dht(dhtMain);
-  }
-  // SENSORS  ---------------------------------------------------------------------------------------
-  if (counter % 10 == 0) {
-        message("rEAD cmd:" + read_cmd(""));
 
   }
-  if (counter % CHECK_SENSORS_1 == 0) {
-    check_light(false);
+  // SENSORS  ---------------------------------------------------------------------------------------
+  if (counter % 1200 == 0) {
+    read_cmd_flow();
   }
-  if (counter % CHECK_SENSORS_2 == 0) {
+  if (counter % CHECK_SENSORS_1 == 0) {
     sonsors_dallas();
     check_light(false);
   }
-  if (counter % CHECK_SENSORS_3 == 0) {
-    
-  }
-  if (counter % CHECK_SENSORS_4 == 0) {
-
-  }
+//  if (counter % CHECK_SENSORS_2 == 0) {
+//    check_light(false);
+//  }
+  //  if (counter % CHECK_SENSORS_3 == 0) {
+  //
+  //  }
+  //  if (counter % CHECK_SENSORS_4 == 0) {
+  //
+  //  }
   if (counter % CHECK_SENSORS_5 == 0) {
     sensors_hydrometer();
     check_light(false);
@@ -373,19 +369,6 @@ void loop(void) {
     sonsors_dht();
     check_light(false);
   }
-  //    sensorsSingleLog = "";
-  //
-  //    delay(10);
-  //
-  //    delay(20);
-  //    ESP.wdtFeed();
-  //
-  //    delay(30);
-  //    ESP.wdtFeed();
-  //
-  //    delay(40);
-  //    ESP.wdtFeed();
-  //    message(sensorsSingleLog, INFO);
 
   if (counter % CALL_SERVER_COUNTER == 0 && internet_access) {
     growBookPostValues();
@@ -400,28 +383,45 @@ void loop(void) {
 
   if (counter % NTP_UPDATE_COUNTER == 0) {
     if (internet_access) {
-      message("Starting update the time...", DEBUG);
+      message("Starting update the time...CUNTER:" + String(counter) + " REG:" + String(CHECK_INTERNET_CONNECTIVITY_CTR), DEBUG);
       update_time();
-      //      if (boot_time == 0 && timeClient.getEpochTime() > INCORRECT_EPOCH) {
-      //        message("Update boot_time = " + String(timeClient.getEpochTime()), INFO);
-      //        boot_time = timeClient.getEpochTime();
-      //      }
     }
   }
   check_light(false);
-  delay(LOOP_DELAY/3);
+  delay(LOOP_DELAY / 3);
   check_light(false);
-  delay(LOOP_DELAY/3);
+  delay(LOOP_DELAY / 3);
   check_light(false);
-  delay(LOOP_DELAY/3);
-  check_light(false);
+  delay(LOOP_DELAY / 3);
   counter++;
-  if (counter >= 16000) {
+  if (counter >= 100000) {
     counter = 0;
   }
   //uptime = timeClient.getEpochTime() - boot_time;
 }
 
+void read_cmd_flow()
+{
+  String output = read_cmd("");
+  if (output.length() > 200) {
+    return;
+  }
+  String key, value = "";
+  char buff[100];
+  output.toCharArray(buff, output.length() + 1);
+  sscanf(buff, "%s ^ %s ^^", &key, &value);
+  if (key.length() > 1)
+  {
+    message("rEAD cmd:" + output + " KEY=" + String(key) + " VALUE=" + value);
+    if (key == "reboot" && value.toInt() == 1) {
+      message("Resetting ESP" , WARNING);
+      delay(500);
+      ESP.restart();
+    }
+  }
+
+
+}
 bool sensors_hydrometer() {
   float hydro_value = analogRead(HYDROMETER_PIN);
   float hydro_value_src = hydro_value;
@@ -623,7 +623,7 @@ String read_cmd(const String &postData) {
       message(String(" !  -  Code:") + String(httpCode) + " " + String(" \t Message :") + httpClient.errorToString(httpCode) , DEBUG);
     }
     else {
-      
+
       if (httpCode == HTTP_CODE_FOUND || httpCode == HTTP_CODE_OK) {
         ret = httpClient.getString(); // Get the response payload
         //message(String(" +  Code:") + String(httpCode) + " PayLoad:" + String(payload), INFO);    //Print request response payload
