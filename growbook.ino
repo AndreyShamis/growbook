@@ -194,7 +194,6 @@ volatile unsigned long       boot_time = 0;
 volatile unsigned long       uptime = 0;
 WiFiClient          wifi_client;
 
-volatile bool       update_time_flag = false;
 //volatile unsigned int        interruptCounter = 0;
 /*******************************************************************************************************/
 
@@ -210,7 +209,7 @@ float   getTemperature(const int dev = 0);
 void ICACHE_RAM_ATTR onTimerISR()
 {
   //if (interruptCounter % 4 == 0) {
-  if (boot_time > 0 && !update_time_flag) {
+  if (boot_time > 0) {
     uptime = timeClient.getEpochTime() - boot_time;
   }
   //}
@@ -1016,7 +1015,7 @@ String build_index() {
    Update time by NTP client
 */
 void update_time() {
-  update_time_flag = true;
+  noInterrupts();
   if (timeClient.getEpochTime() < INCORRECT_EPOCH) {
     unsigned short counter_tmp = 0;
     while (timeClient.getEpochTime() < INCORRECT_EPOCH && counter_tmp < 10) {
@@ -1038,7 +1037,7 @@ void update_time() {
     timeClient.forceUpdate();
     timeClient.update();
   }
-  update_time_flag = false;
+  interrupts();
   message("Time updated." , PASS);
 }
 
