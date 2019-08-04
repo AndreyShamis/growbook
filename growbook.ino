@@ -239,49 +239,12 @@ void setup(void) {
   Serial.begin(UART_BAUD_RATE);
   Serial.println("");
   message("Serial communication started.", PASS);
-
-  rst_info* rinfo = ESP.getResetInfoPtr();
-
-  Serial.printf("rinfo->reason:   %d, %s\n", rinfo->reason, ESP.getResetReason().c_str());
-  Serial.printf("rinfo->exccause: %d\n", rinfo->exccause);
-  Serial.printf("rinfo->epc1:     %d\n", rinfo->epc1);
-  Serial.printf("rinfo->epc2:     %d\n", rinfo->epc2);
-  Serial.printf("rinfo->epc3:     %d\n", rinfo->epc3);
-  Serial.printf("rinfo->excvaddr: %d\n", rinfo->excvaddr);
-  Serial.printf("rinfo->depc:     %d\n", rinfo->depc);
-
-  struct bootflags bflags = bootmode_detect();
-
-  Serial.printf("\nbootflags.raw_rst_cause: %d\n", bflags.raw_rst_cause);
-  Serial.printf("bootflags.raw_bootdevice: %d\n", bflags.raw_bootdevice);
-  Serial.printf("bootflags.raw_bootmode: %d\n", bflags.raw_bootmode);
-
-  Serial.printf("bootflags.rst_normal_boot: %d\n", bflags.rst_normal_boot);
-  Serial.printf("bootflags.rst_reset_pin: %d\n", bflags.rst_reset_pin);
-  Serial.printf("bootflags.rst_watchdog: %d\n", bflags.rst_watchdog);
-
-  Serial.printf("bootflags.bootdevice_ram: %d\n", bflags.bootdevice_ram);
-  Serial.printf("bootflags.bootdevice_flash: %d\n", bflags.bootdevice_flash);
-
-  if (bflags.raw_bootdevice == 1) {
-    Serial.println("\n\n\n!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n!!!!!!!!! The sketch has just been uploaded over the serial link to the ESP8266");
-    Serial.println("Beware: the device will freeze after it reboots in the following step.");
-    Serial.println("It will be necessary to manually reset the device or to power cycle it");
-    Serial.println("and thereafter the ESP8266 will continuously reboot.\n");
-    //      Serial.println("\n\nRebooting with ESP.restart()");
-    //      ESP.restart();
-    delay(2000);
-  } else {
-    Serial.println("\n\n\n\n\n\n\n\n\n\n\nRESET_FOUND\n\n\n\n\n");
-  }
-
+  print_reset_info();   ////////////////////////////////////////////////
   message("Starting SPIFFS....", INFO);
   SPIFFS.begin();
   message("SPIFFS startted.", PASS);
   //message("Compile SPIFFS", INFO);
   //  SPIFFS.format();
-
-
 
   //Serial.println(build_index());
   wifi_connect();
@@ -306,6 +269,7 @@ void setup(void) {
       message(" ----> internet_access is OK<----", PASS);
       break;
     }
+    
     ESP.wdtFeed();
     delay(100);
     counter += 1;
@@ -408,20 +372,11 @@ void loop(void) {
 void read_cmd_flow()
 {
   String output = read_cmd("");
-  if (output.length() > 200) {
+  if (output.length() > 200 || output.length() < 4) {
     return;
   }
   String key = getValue(output, ':', 0);
   String value = getValue(output, ':', 1);
-  //String key, value = "";
-  //char buff[100];
-  message("here Received " + output);
-  // output.toCharArray(buff, output.length() + 1);
-  //  message("scan buff LEN IS  " + String(output.length()));
-  // sscanf(buff, "%s ^ %s ^^", &key, &value);\
-  // key.trim();
-  //  value.trim();
-  message("check KEY len " + String(key.length()));
   if (key.length() > 1)
   {
     message("Print msg");
@@ -432,42 +387,45 @@ void read_cmd_flow()
       ESP.restart();
     }
     if (key == "firmwareUpdate") {
-      String url = "/1.bin"; // + String(value);
-      delay(500);
-      message("Update firmware from " + String(GROWBOOK_URL_NO_PORT) + url , WARNING);
-
-      delay(500);
-      ESP.wdtFeed();
-      ESP.wdtEnable(30000);
-      ESP.wdtDisable();
-
-      ESP.wdtFeed();
-      ESPhttpUpdate.rebootOnUpdate(true);
-      ESPhttpUpdate.followRedirects(true);
-      message("Start");
-      HTTPUpdateResult ret = ESPhttpUpdate.update(GROWBOOK_URL_NO_PORT , 8082, url);
-      message("END");
-      //HTTPUpdateResult ret = ESPhttpUpdate.update("http://192.168.1.206:8082/firmware/growbook_v0.4.ino.bin");
-      ESP.wdtEnable(5000);
-      ESP.wdtFeed();
-      //HTTPUpdateResult ret = ESPhttpUpdate.update(wifi_client, "http://192.168.1.206:8082/firmware/growbook_v0.4.ino.bin");
-      message("Resetting ESP" , WARNING);
-      switch (ret) {
-        case HTTP_UPDATE_FAILED:
-          message("[update] HTTP_UPDATE_FAILED Update failed." + String(ESPhttpUpdate.getLastError()) + " " + String(ESPhttpUpdate.getLastErrorString().c_str()));
-          break;
-        case HTTP_UPDATE_NO_UPDATES:
-          message("[update] HTTP_UPDATE_NO_UPDATES Update no Update.");
-          break;
-        case HTTP_UPDATE_OK:          
-          message("[update] Update ok."); // may not called we reboot the ESP
-          break;
-      }
+      update_firmware(value);
     }
   }
 }
 
-
+void update_firmware(const String &value)
+{
+  String url = "/1.bin"; // + String(value);
+  delay(500);
+  message("Update firmware from " + String(GROWBOOK_URL_NO_PORT) + url , WARNING);
+  delay(500);
+  ESP.wdtFeed();
+  ESPhttpUpdate.rebootOnUpdate(true);
+  //ESPhttpUpdate.followRedirects(true);
+  message("Start");
+  ESP.wdtFeed();
+  noInterrupts();
+  HTTPUpdateResult ret = ESPhttpUpdate.update(GROWBOOK_URL_NO_PORT , 8082, url);
+  ESP.wdtFeed();
+  message("END");
+  //HTTPUpdateResult ret = ESPhttpUpdate.update("http://192.168.1.206:8082/firmware/growbook_v0.4.ino.bin");
+  ESP.wdtFeed();
+  //HTTPUpdateResult ret = ESPhttpUpdate.update(wifi_client, "http://192.168.1.206:8082/firmware/growbook_v0.4.ino.bin");
+  message("Resetting ESP" , WARNING);
+  switch (ret) {
+    case HTTP_UPDATE_FAILED:
+      message("[update] HTTP_UPDATE_FAILED Update failed." + String(ESPhttpUpdate.getLastError()) + " " + String(ESPhttpUpdate.getLastErrorString().c_str()));
+      break;
+    case HTTP_UPDATE_NO_UPDATES:
+      message("[update] HTTP_UPDATE_NO_UPDATES Update no Update.");
+      break;
+    case HTTP_UPDATE_OK:
+      message("[update] Update ok."); // may not called we reboot the ESP
+      break;
+  }
+  ESP.wdtFeed();
+  interrupts();
+  delay(500);
+}
 String getValue(String data, char separator, int index)
 {
   int found = 0;
@@ -1183,6 +1141,45 @@ void handleRoot() {
   server.send(200, "text/html", message);
 }
 
+
+void print_reset_info()
+{
+  
+  rst_info* rinfo = ESP.getResetInfoPtr();
+
+  Serial.printf("rinfo->reason:   %d, %s\n", rinfo->reason, ESP.getResetReason().c_str());
+  Serial.printf("rinfo->exccause: %d\n", rinfo->exccause);
+  Serial.printf("rinfo->epc1:     %d\n", rinfo->epc1);
+  Serial.printf("rinfo->epc2:     %d\n", rinfo->epc2);
+  Serial.printf("rinfo->epc3:     %d\n", rinfo->epc3);
+  Serial.printf("rinfo->excvaddr: %d\n", rinfo->excvaddr);
+  Serial.printf("rinfo->depc:     %d\n", rinfo->depc);
+
+  struct bootflags bflags = bootmode_detect();
+
+  Serial.printf("\nbootflags.raw_rst_cause: %d\n", bflags.raw_rst_cause);
+  Serial.printf("bootflags.raw_bootdevice: %d\n", bflags.raw_bootdevice);
+  Serial.printf("bootflags.raw_bootmode: %d\n", bflags.raw_bootmode);
+
+  Serial.printf("bootflags.rst_normal_boot: %d\n", bflags.rst_normal_boot);
+  Serial.printf("bootflags.rst_reset_pin: %d\n", bflags.rst_reset_pin);
+  Serial.printf("bootflags.rst_watchdog: %d\n", bflags.rst_watchdog);
+
+  Serial.printf("bootflags.bootdevice_ram: %d\n", bflags.bootdevice_ram);
+  Serial.printf("bootflags.bootdevice_flash: %d\n", bflags.bootdevice_flash);
+
+  if (bflags.raw_bootdevice == 1) {
+    Serial.println("\n\n\n!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n!!!!!!!!! The sketch has just been uploaded over the serial link to the ESP8266");
+    Serial.println("Beware: the device will freeze after it reboots in the following step.");
+    Serial.println("It will be necessary to manually reset the device or to power cycle it");
+    Serial.println("and thereafter the ESP8266 will continuously reboot.\n");
+    //      Serial.println("\n\nRebooting with ESP.restart()");
+    //      ESP.restart();
+    delay(2000);
+  } else {
+    Serial.println("\n\n\n\n\n\n\n\n\n\n\nRESET_FOUND\n\n\n\n\n");
+  }
+}
 ////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////
 
