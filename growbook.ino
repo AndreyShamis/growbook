@@ -31,7 +31,7 @@
 #include <Ticker.h>
 
 /*******************************************************************************************************/
-#define   VERSION                           0.3
+#define   VERSION                           0.31
 // WiFi settings
 #define   WIFI_SSID                         "RadiationG"
 #define   WIFI_PASS                         "polkalol"
@@ -128,7 +128,7 @@ struct bootflags
 };
 
 struct bootflags bootmode_detect(void) {
-  int reset_reason, bootmode;
+  int reset_reason = 0, bootmode = 0;
   asm (
     "movi %0, 0x60000600\n\t"
     "movi %1, 0x60000200\n\t"
@@ -193,7 +193,8 @@ bool                light_enabled = false;
 volatile unsigned long       boot_time = 0;
 volatile unsigned long       uptime = 0;
 WiFiClient          wifi_client;
-
+volatile bool       update_time_flag   = false;
+volatile bool       firmwareUpdateFlag = false;
 //volatile unsigned int        interruptCounter = 0;
 /*******************************************************************************************************/
 
@@ -208,17 +209,14 @@ float   getTemperature(const int dev = 0);
 //=======================================================================
 void ICACHE_RAM_ATTR onTimerISR()
 {
-  //if (interruptCounter % 4 == 0) {
-  if (boot_time > 0) {
+  // Update uptime if boot time found and not process update_time
+  if (boot_time > 0 || !update_time_flag) {
     uptime = timeClient.getEpochTime() - boot_time;
   }
-  //}
-  //message("Tick");
-  //interruptCounter++;
-  //  if (interruptCounter > 30000) {
-  //    interruptCounter = 0;
-  //  }
-  timer1_write(INTERRUPT_TIME);//12us
+  // We cannot run timer if there is firmware update process
+  if (!firmwareUpdateFlag) {
+    timer1_write(INTERRUPT_TIME);//12us
+  }
 }
 
 /**
@@ -268,7 +266,7 @@ void setup(void) {
       message(" ----> internet_access is OK<----", PASS);
       break;
     }
-    
+
     ESP.wdtFeed();
     delay(100);
     counter += 1;
@@ -368,17 +366,19 @@ void loop(void) {
   //uptime = timeClient.getEpochTime() - boot_time;
 }
 
+/**
+
+*/
 void read_cmd_flow()
 {
   String output = read_cmd("");
   if (output.length() > 200 || output.length() < 4) {
     return;
   }
-  String key = getValue(output, ':', 0);
-  String value = getValue(output, ':', 1);
+  String key = getValue(output, '^', 0);
+  String value = getValue(output, '^', 1);
   if (key.length() > 1)
   {
-    message("Print msg");
     message("READ cmd:" + output + " KEY=" + String(key) + " VALUE=" + String(value));
     if (key == "reboot" && value.toInt() == 1) {
       message("Resetting ESP" , WARNING);
@@ -393,17 +393,16 @@ void read_cmd_flow()
 
 void update_firmware(const String &value)
 {
-  String url = "/1.bin"; // + String(value);
-  delay(500);
-  message("Update firmware from " + String(GROWBOOK_URL_NO_PORT) + url , WARNING);
-  delay(500);
+  firmwareUpdateFlag = true;
+  message("Update firmware from " + String(value) , WARNING);
   ESP.wdtFeed();
   ESPhttpUpdate.rebootOnUpdate(true);
   //ESPhttpUpdate.followRedirects(true);
   message("Start");
   ESP.wdtFeed();
-  noInterrupts();
-  HTTPUpdateResult ret = ESPhttpUpdate.update(GROWBOOK_URL_NO_PORT , 8082, url);
+  delay(1000); // Wait till timer is finished
+
+  HTTPUpdateResult ret = ESPhttpUpdate.update(value);
   ESP.wdtFeed();
   message("END");
   //HTTPUpdateResult ret = ESPhttpUpdate.update("http://192.168.1.206:8082/firmware/growbook_v0.4.ino.bin");
@@ -423,6 +422,8 @@ void update_firmware(const String &value)
   }
   ESP.wdtFeed();
   interrupts();
+  firmwareUpdateFlag = false;
+  timer1_write(INTERRUPT_TIME);//12us
   delay(500);
 }
 String getValue(String data, char separator, int index)
@@ -575,7 +576,7 @@ bool sonsor_dht(DHTesp &dhtSensor) {
   TempAndHumidity ret = read_dht(dhtSensor);
   delay(20);
   float heat_index = dhtSensor.computeHeatIndex(ret.temperature, ret.humidity, false);
-  float dewPoint = dhtSensor.computeDewPoint(ret.temperature, ret.humidity, false);
+  //float dewPoint = dhtSensor.computeDewPoint(ret.temperature, ret.humidity, false);
   float absoluteHumidity = dhtSensor.computeAbsoluteHumidity(ret.temperature, ret.humidity, false);
   bool epoch_trigger = timeClient.getEpochTime() % 17 == 0;
   //sensorsSingleLog += String(" \t Humidity:") + "DHT Status [" + dhtSensor.getStatusString() + "]\tHumidity: [" + ret.humidity + "%] \t TMP:" + ret.temperature + "C - Heat Index: [" + heat_index + " C]" + " DewPoint : " + String(dewPoint) + " absoluteHumidity:" + String(absoluteHumidity) + " dec size:" + String(dhtSensor.getNumberOfDecimalsHumidity());
@@ -1016,6 +1017,7 @@ String build_index() {
 */
 void update_time() {
   noInterrupts();
+  update_time_flag = true;
   if (timeClient.getEpochTime() < INCORRECT_EPOCH) {
     unsigned short counter_tmp = 0;
     while (timeClient.getEpochTime() < INCORRECT_EPOCH && counter_tmp < 10) {
@@ -1038,6 +1040,7 @@ void update_time() {
     timeClient.update();
   }
   interrupts();
+  update_time_flag = false;
   message("Time updated." , PASS);
 }
 
@@ -1143,7 +1146,7 @@ void handleRoot() {
 
 void print_reset_info()
 {
-  
+
   rst_info* rinfo = ESP.getResetInfoPtr();
 
   Serial.printf("rinfo->reason:   %d, %s\n", rinfo->reason, ESP.getResetReason().c_str());
@@ -1290,9 +1293,8 @@ String read_setting(const char* fname) {
 */
 void print_all_info() {
   message("", DEBUG);
-  message("internet_access \t:" + String(internet_access), INFO);
-  message("MIN_TEMPERATURE_TH \t:" + String(MIN_TEMPERATURE_TH), INFO);
-  message("MIN_HUMIDITY_TH \t:" + String(MIN_HUMIDITY_TH), INFO);
+  message("Version:" + String(VERSION) + "\t internet_access \t:" + String(internet_access), INFO);
+  message("MIN_TEMPERATURE_TH \t:" + String(MIN_TEMPERATURE_TH) + " \t MIN_HUMIDITY_TH \t:" + String(MIN_HUMIDITY_TH), INFO);
   message("CHECK_INTERNET_CONNECT \t:" + String(CHECK_INTERNET_CONNECT), INFO);
   message("DHTesp_MODEL \t:" + String(dhtMain.getModel()), INFO);
   message("HostName: " + WiFi.hostname() + " |Ch: " + String(WiFi.channel()) + " |RSSI: " + WiFi.RSSI() + " |MAC: " + WiFi.macAddress() + " \t Flash Chip Id/Size/Speed/Mode: " + String(ESP.getFlashChipId()) + "/" + String(ESP.getFlashChipSize()) + "/" + String(ESP.getFlashChipSpeed()) + "/" + String(ESP.getFlashChipMode()), INFO);
