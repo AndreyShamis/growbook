@@ -31,7 +31,7 @@
 #include <Ticker.h>
 
 /*******************************************************************************************************/
-#define   VERSION                           0.31
+#define   VERSION                           0.32                    // Production release, 2019.08.04_18:29
 // WiFi settings
 #define   WIFI_SSID                         "RadiationG"
 #define   WIFI_PASS                         "polkalol"
@@ -89,9 +89,9 @@
 #define CHECK_INTERNET_CONNECTIVITY_CTR     (COUNTER_IN_LOOP_SECOND*120)
 
 #define GROWBOOK_URL_NO_PORT                "192.168.1.206"
-#define GROWBOOK_URL                        "http://192.168.1.206:8082/"
+//#define GROWBOOK_URL                        "http://192.168.1.206:8082/"
 
-//#define GROWBOOK_URL                        "http://growbook.anshamis.com/"
+#define GROWBOOK_URL                        "http://growbook.anshamis.com/"
 
 
 // INTERRUPT
@@ -732,16 +732,17 @@ DHTesp startSensor(DHTesp &dhtSensor, const unsigned int pin)
   TempAndHumidity _t = read_dht(dhtSensor);
   message("_t value.humidity " + String(_t.humidity));
   if (_t.humidity == NAN || String(_t.humidity) == "nan" || _t.humidity < 5) {
-    message("DHT auto detect failed. Seting AUTO_DETECT. Value " + String(_t.humidity));
+    message("DHT [DHTesp::DHT22] failed. Seting [AUTO_DETECT]. Value " + String(_t.humidity));
+    delay(1000);
     dhtSensor.setup(pin, DHTesp::AUTO_DETECT);
     _t = read_dht(dhtSensor);
     if (_t.humidity == NAN || String(_t.humidity) == "nan" ) {
-      message("DHT22 detect failed. Seting DHT11. Value " + String(_t.humidity));
+      message("DHT22 [DHTesp::DHT22] detect failed. Seting [DHTesp::DHT11]. Value " + String(_t.humidity));
       dhtSensor.setup(pin, DHTesp::DHT11);
       delay(2000);
       _t = read_dht(dhtSensor);
       if (_t.humidity == NAN || String(_t.humidity) == "nan" ) {
-        message("DHT11 detect failed. Seting AUTO_DETECT. Value " + String(_t.humidity));
+        message("DHT11 [DHTesp::DHT11] detect failed. Seting [AUTO_DETECT]. Value " + String(_t.humidity));
         dhtSensor.setup(pin, DHTesp::AUTO_DETECT);
       } else {
         message("DHT11 success.", PASS);
