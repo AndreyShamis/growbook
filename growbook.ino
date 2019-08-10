@@ -31,7 +31,9 @@
 #include <Ticker.h>
 
 /*******************************************************************************************************/
-#define   VERSION                           0.32                    // Production release, 2019.08.04_18:29
+#define   VERSION                           0.33                    // Production release, 2019.08.04_18:29
+                                                                    // Production release, 2019.08.10_15:14
+
 // WiFi settings
 #define   WIFI_SSID                         "RadiationG"
 #define   WIFI_PASS                         "polkalol"
@@ -88,7 +90,7 @@
 #define NTP_UPDATE_COUNTER                  (COUNTER_IN_LOOP_SECOND*60*3)
 #define CHECK_INTERNET_CONNECTIVITY_CTR     (COUNTER_IN_LOOP_SECOND*120)
 
-#define GROWBOOK_URL_NO_PORT                "192.168.1.206"
+//#define GROWBOOK_URL_NO_PORT                "192.168.1.206"
 //#define GROWBOOK_URL                        "http://192.168.1.206:8082/"
 
 #define GROWBOOK_URL                        "http://growbook.anshamis.com/"
@@ -510,6 +512,7 @@ bool sensors_light() {
 bool sonsors_dallas() {
   //sensorsSingleLog = "Temperature:";
   int devices_count = sensor.getDeviceCount();
+  unsigned short int devices_count_good = 0;
   float sum_tmp = 0;
   temp_max_value_prev = LOW_TEMPERATURE;
   temp_min_value_prev = HIGH_TEMPERATURE;
@@ -537,22 +540,25 @@ bool sonsors_dallas() {
     float tmp_diff = prevTmp - current_temp[i];
     if (current_temp[i] > LOW_TEMPERATURE && current_temp[i] < HIGH_TEMPERATURE) {
       sum_tmp += current_temp[i];
+      devices_count_good += 1;
       temp_max_value_prev = max(temp_max_value_prev, current_temp[i]);
       temp_min_value_prev = min(temp_min_value_prev, current_temp[i]);
       // sensorsSingleLog += " \t " + String(i) + ": " + String(current_temp[i]) + " C \t | ";
       bool epoch_trigger = timeClient.getEpochTime() % 7 == 0;
       if (fabs(tmp_diff) > MIN_TEMPERATURE_TH || epoch_trigger) {
+        #ifdef EPOCH_TRIGGER_DEBUG
         if (epoch_trigger) {
           message("- ---          ****************************** ---------- EPOCH TRIGGER");
         }
+        #endif
         growBookPostEvent(String(current_temp[i]), String(getAddressString(insideThermometer[i])), TypeNames[TEMPERATURE], "", "", "");
       }
     } else {
-      growBookPostValue("BAD_TEMERATURE_VALUE_" + String(getAddressString(insideThermometer[i])), String(current_temp[i]));
+      growBookPostValue("BAD_TEMPERATURE_VALUE_" + String(getAddressString(insideThermometer[i])), String(current_temp[i]));
     }
   }
-  if (devices_count) {
-    sum_tmp = sum_tmp / devices_count;
+  if (devices_count_good) {
+    sum_tmp = sum_tmp / devices_count_good;
     temp_sum_value_prev = sum_tmp;
     growBookPostValue("temperature", String(sum_tmp));
   }
@@ -581,9 +587,11 @@ bool sonsor_dht(DHTesp &dhtSensor) {
   bool epoch_trigger = timeClient.getEpochTime() % 17 == 0;
   //sensorsSingleLog += String(" \t Humidity:") + "DHT Status [" + dhtSensor.getStatusString() + "]\tHumidity: [" + ret.humidity + "%] \t TMP:" + ret.temperature + "C - Heat Index: [" + heat_index + " C]" + " DewPoint : " + String(dewPoint) + " absoluteHumidity:" + String(absoluteHumidity) + " dec size:" + String(dhtSensor.getNumberOfDecimalsHumidity());
   if (fabs(humidity_value_prev - ret.humidity)  > MIN_HUMIDITY_TH || epoch_trigger) {
+    #ifdef EPOCH_TRIGGER_DEBUG
     if (epoch_trigger) {
       message("- ---          ****************************** ---------- EPOCH TRIGGER ----------------------------- DHT");
     }
+    #endif
     String model = String("DHT") + String(dhtSensor.getModel()) + String(dhtSensor.getModel());
     if (String(heat_index) != "nan") {
       growBookPostEvent(String(ret.humidity), model + "_-_" + String(WiFi.hostname()) + String("_-_") + String(dhtSensor.getPin()), TypeNames[HUMIDITY], String(absoluteHumidity), String(ret.temperature), String(heat_index));
@@ -699,18 +707,18 @@ void growBookPostValues() {
   String url = "plant/cli/" + urlencode(WiFi.hostname());
   //    httpClient.setTimeout(2000);
   String postData;
-  postData = "uptime=" + urlencode(String(uptime)) + "&" + urlencode("light_enabled") + "=" + urlencode(String(light_enabled));
+  postData = "uptime=" + urlencode(String(uptime)) + "&" + urlencode("light") + "=" + urlencode(String(light_enabled));
   if (humidity_value > 0) {
     postData += "&humidity=" + urlencode(String(humidity_value));
   }
   if (temp_sum_value_prev > 0) {
-    postData += "&temerature=" + urlencode(String(temp_sum_value_prev));
+    postData += "&temperature=" + urlencode(String(temp_sum_value_prev));
   }
   if (temp_min_value_prev > 0) {
-    postData += "&temerature_min=" + urlencode(String(temp_min_value_prev));
+    postData += "&temperature_min=" + urlencode(String(temp_min_value_prev));
   }
   if (temp_max_value_prev > 0) {
-    postData += "&temerature_max=" + urlencode(String(temp_max_value_prev));
+    postData += "&temperature_max=" + urlencode(String(temp_max_value_prev));
   }
   if (hydro_value_prev > 0 || hydro_value_prev <= 100) {
     postData += "&hydrometer=" + urlencode(String(hydro_value_prev));
