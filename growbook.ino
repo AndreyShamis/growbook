@@ -31,8 +31,10 @@
 #include <Ticker.h>
 
 /*******************************************************************************************************/
-#define   VERSION                           0.33                    // Production release, 2019.08.04_18:29
-                                                                    // Production release, 2019.08.10_15:14
+#define   VERSION                           0.35
+// 0.35 Production release, 2019.08.14_11:45
+// 0.33 Production release, 2019.08.10_15:14
+// 0.32 Production release, 2019.08.04_18:29
 
 // WiFi settings
 #define   WIFI_SSID                         "RadiationG"
@@ -91,7 +93,7 @@
 #define CHECK_INTERNET_CONNECTIVITY_CTR     (COUNTER_IN_LOOP_SECOND*120)
 
 //#define GROWBOOK_URL_NO_PORT                "192.168.1.206"
-//#define GROWBOOK_URL                        "http://192.168.1.206:8082/"
+//define GROWBOOK_URL                        "http://192.168.1.206:8082/"
 
 #define GROWBOOK_URL                        "http://growbook.anshamis.com/"
 
@@ -192,6 +194,7 @@ float               hydro_value_prev = -1;
 float               humidity_value_prev = 0;
 float               humidity_value = 0;
 bool                light_enabled = false;
+bool                reset_info_posted = false;
 volatile unsigned long       boot_time = 0;
 volatile unsigned long       uptime = 0;
 WiFiClient          wifi_client;
@@ -201,7 +204,7 @@ volatile bool       firmwareUpdateFlag = false;
 /*******************************************************************************************************/
 
 //ADC_MODE(ADC_VCC);              // This disable ADC read!
-float   getTemperature(const int dev = 0);
+const float getTemperature(const int &dev = 0);
 /**
  ****************************************************************************************************
  ****************************************************************************************************
@@ -332,10 +335,11 @@ void loop(void) {
     sensors_light();
   }
   if (counter % CHECK_SENSORS_7 == 0) {
-  }
-  if (counter % CHECK_SENSORS_8 == 0) {
     sonsors_dht();
     check_light(false);
+  }
+  if (counter % CHECK_SENSORS_8 == 0) {
+
   }
 
   if (counter % CALL_SERVER_COUNTER == 0 && internet_access) {
@@ -346,7 +350,6 @@ void loop(void) {
   check_connectivity(false);
   if (counter == 20) {
     print_all_info();
-
   }
 
   if (counter % NTP_UPDATE_COUNTER == 0) {
@@ -374,7 +377,7 @@ void loop(void) {
 void read_cmd_flow()
 {
   String output = read_cmd("");
-  if (output.length() > 200 || output.length() < 4) {
+  if (output.length() > 500 || output.length() < 4) {
     return;
   }
   String key = getValue(output, '^', 0);
@@ -399,17 +402,10 @@ void update_firmware(const String &value)
   message("Update firmware from " + String(value) , WARNING);
   ESP.wdtFeed();
   ESPhttpUpdate.rebootOnUpdate(true);
-  //ESPhttpUpdate.followRedirects(true);
-  message("Start");
   ESP.wdtFeed();
   delay(1000); // Wait till timer is finished
-
   HTTPUpdateResult ret = ESPhttpUpdate.update(value);
   ESP.wdtFeed();
-  message("END");
-  //HTTPUpdateResult ret = ESPhttpUpdate.update("http://192.168.1.206:8082/firmware/growbook_v0.4.ino.bin");
-  ESP.wdtFeed();
-  //HTTPUpdateResult ret = ESPhttpUpdate.update(wifi_client, "http://192.168.1.206:8082/firmware/growbook_v0.4.ino.bin");
   message("Resetting ESP" , WARNING);
   switch (ret) {
     case HTTP_UPDATE_FAILED:
@@ -428,7 +424,8 @@ void update_firmware(const String &value)
   timer1_write(INTERRUPT_TIME);//12us
   delay(500);
 }
-String getValue(String data, char separator, int index)
+
+String getValue(const String &data, const char &separator, const int &index)
 {
   int found = 0;
   int strIndex[] = { 0, -1 };
@@ -444,11 +441,10 @@ String getValue(String data, char separator, int index)
   return found > index ? data.substring(strIndex[0], strIndex[1]) : "";
 }
 
-bool sensors_hydrometer() {
+const bool sensors_hydrometer() {
   float hydro_value = analogRead(HYDROMETER_PIN);
   float hydro_value_src = hydro_value;
   hydro_value = map(hydro_value, 0, 1024, 1000, 0) / 10.0;
-  //sensorsSingleLog += " HYDRO:[" + String(hydro_value) + " :src=" + hydro_value_src + "]";
   String model = "HYDRO_" + String(HYDROMETER_PIN) + "_";
   bool epoch_trigger = timeClient.getEpochTime() % 7 == 0;
   if (hydro_value >= 0 && hydro_value <= 100) {
@@ -464,7 +460,8 @@ bool sensors_hydrometer() {
   return true;
 }
 
-bool check_light(bool verbose) {
+const bool check_light(const bool &verbose)
+{
   int digitalVal = digitalRead(LIGHT_SENSOR_D0);    // Read the digital interface
   bool change_found = false;
   if (digitalVal == HIGH) {
@@ -473,7 +470,6 @@ bool check_light(bool verbose) {
       if (verbose) {
         message("Light is OFF", DEBUG);
       }
-
     }
     light_enabled = false;
   } else {
@@ -497,7 +493,7 @@ bool check_light(bool verbose) {
 /**
 
 */
-bool sensors_light() {
+const bool sensors_light() {
 
   check_light(true);
   //sensorsSingleLog += " LIGHT IS " + String(light_enabled) + " ";
@@ -509,14 +505,14 @@ bool sensors_light() {
   return true;
 }
 
-bool sonsors_dallas() {
-  //sensorsSingleLog = "Temperature:";
-  int devices_count = sensor.getDeviceCount();
+const bool sonsors_dallas()
+{
+  short int devices_count = sensor.getDeviceCount();
   unsigned short int devices_count_good = 0;
   float sum_tmp = 0;
   temp_max_value_prev = LOW_TEMPERATURE;
   temp_min_value_prev = HIGH_TEMPERATURE;
-  for (int i = 0; i < devices_count; i++) {
+  for (short int i = 0; i < devices_count; i++) {
     float prevTmp = current_temp[i];
     float tmp_1 = 0;
     float tmp_2 = 1;
@@ -526,12 +522,14 @@ bool sonsors_dallas() {
       while (tmp_1 != tmp_2 && _c < 10) {
         _c++;
         delay(20 * _c);
+        ESP.wdtFeed();
         tmp_1 = getTemperature(i);
         tmp_2 = getTemperature(i);
         if (tmp_1 > HIGH_TEMPERATURE && tmp_1 == tmp_2) {
           message("High temperature found, recheck. Current" + String(tmp_1) + " Threshhold[HIGH_TEMPERATURE]: " + String(HIGH_TEMPERATURE), CRITICAL);
           tmp_1 = 0;
           delay(200);
+          ESP.wdtFeed();
         }
       }
       current_temp[i] = tmp_1;
@@ -543,18 +541,17 @@ bool sonsors_dallas() {
       devices_count_good += 1;
       temp_max_value_prev = max(temp_max_value_prev, current_temp[i]);
       temp_min_value_prev = min(temp_min_value_prev, current_temp[i]);
-      // sensorsSingleLog += " \t " + String(i) + ": " + String(current_temp[i]) + " C \t | ";
       bool epoch_trigger = timeClient.getEpochTime() % 7 == 0;
       if (fabs(tmp_diff) > MIN_TEMPERATURE_TH || epoch_trigger) {
-        #ifdef EPOCH_TRIGGER_DEBUG
+#ifdef EPOCH_TRIGGER_DEBUG
         if (epoch_trigger) {
           message("- ---          ****************************** ---------- EPOCH TRIGGER");
         }
-        #endif
+#endif
         growBookPostEvent(String(current_temp[i]), String(getAddressString(insideThermometer[i])), TypeNames[TEMPERATURE], "", "", "");
       }
     } else {
-      growBookPostValue("BAD_TEMPERATURE_VALUE_" + String(getAddressString(insideThermometer[i])), String(current_temp[i]));
+      growBookPostValue("BAD_TEMP_VALUE_" + String(getAddressString(insideThermometer[i])), String(current_temp[i]));
     }
   }
   if (devices_count_good) {
@@ -574,29 +571,24 @@ TempAndHumidity read_dht(DHTesp &dhtSensor) {
 /**
     Humidity sensor
 */
-bool sonsors_dht() {
+const bool sonsors_dht() {
   return sonsor_dht(dhtMain);
 }
 
-bool sonsor_dht(DHTesp &dhtSensor) {
+const bool sonsor_dht(DHTesp &dhtSensor) {
   TempAndHumidity ret = read_dht(dhtSensor);
   delay(20);
   float heat_index = dhtSensor.computeHeatIndex(ret.temperature, ret.humidity, false);
   //float dewPoint = dhtSensor.computeDewPoint(ret.temperature, ret.humidity, false);
   float absoluteHumidity = dhtSensor.computeAbsoluteHumidity(ret.temperature, ret.humidity, false);
-  bool epoch_trigger = timeClient.getEpochTime() % 17 == 0;
-  //sensorsSingleLog += String(" \t Humidity:") + "DHT Status [" + dhtSensor.getStatusString() + "]\tHumidity: [" + ret.humidity + "%] \t TMP:" + ret.temperature + "C - Heat Index: [" + heat_index + " C]" + " DewPoint : " + String(dewPoint) + " absoluteHumidity:" + String(absoluteHumidity) + " dec size:" + String(dhtSensor.getNumberOfDecimalsHumidity());
-  if (fabs(humidity_value_prev - ret.humidity)  > MIN_HUMIDITY_TH || epoch_trigger) {
-    #ifdef EPOCH_TRIGGER_DEBUG
-    if (epoch_trigger) {
-      message("- ---          ****************************** ---------- EPOCH TRIGGER ----------------------------- DHT");
-    }
-    #endif
-    String model = String("DHT") + String(dhtSensor.getModel()) + String(dhtSensor.getModel());
-    if (String(heat_index) != "nan") {
-      growBookPostEvent(String(ret.humidity), model + "_-_" + String(WiFi.hostname()) + String("_-_") + String(dhtSensor.getPin()), TypeNames[HUMIDITY], String(absoluteHumidity), String(ret.temperature), String(heat_index));
-    }
+  String model = String("DHT") + String(dhtSensor.getModel()) + String(dhtSensor.getModel());
+  String serial_num = model + "_-_" + String(WiFi.hostname()) + String("_-_") + String(dhtSensor.getPin());
+  if (String(heat_index) != "nan") {
+    growBookPostEvent(String(ret.humidity), serial_num, TypeNames[HUMIDITY], String(absoluteHumidity), String(ret.temperature), String(heat_index));
+  } else {
+    growBookPostValue("BAD_HUMIDITY_VALUE_" + serial_num, String(ret.humidity) + ":" + String(absoluteHumidity) + ":" + String(ret.temperature) + ":" + String(heat_index) + ":Status:" + dhtSensor.getStatusString());
   }
+  
   //  if (humidity < 10 || (humidity > 90 && humidity <= 100)) {
   //    growBookPostValue("humidity", String(humidity));
   //  }
@@ -605,10 +597,9 @@ bool sonsor_dht(DHTesp &dhtSensor) {
   return true;
 }
 
-void growBookPostEvent(String value, String sensor, String type, String value1, String value2, String value3) {
+void growBookPostEvent(const String &value, const String &sensor, const String &type, const String &value1, const String &value2, const String &value3) {
   String note = "";
   String url = "event/new?type=" + String(type);
-  //    httpClient.setTimeout(5000);
   String postData;
   postData = String("rssi=") + urlencode(String(WiFi.RSSI())) + "&version=" + urlencode(String(VERSION)) + "&uptime=" + urlencode(String(uptime)) + "&value=" + urlencode(value) + "&sensor_id=" + urlencode(sensor) + "&note=" + urlencode(note) + "&plant_id=" + urlencode(WiFi.hostname());
   if ( value1 != "" ) {
@@ -627,12 +618,9 @@ void growBookPostEvent(String value, String sensor, String type, String value1, 
 /**
 
 */
-void growBookPostValue(String key, String value) {
-  String url = "plant/cli/" + urlencode(WiFi.hostname());// + "/" + urlencode(key) + "/" + urlencode(value);
-  //    httpClient.setTimeout(2000);
-  String postData;
-  postData = String("key=") + urlencode(key) + "&value=" + urlencode(value);
-  postTo(url, postData);
+void growBookPostValue(const String &key, const String &value)
+{
+  postTo("plant/cli/" + urlencode(WiFi.hostname()), String("key=") + urlencode(key) + "&value=" + urlencode(value));
 }
 
 String read_cmd(const String &postData) {
@@ -642,13 +630,11 @@ String read_cmd(const String &postData) {
     String int_url = String(GROWBOOK_URL) + url;
     message(int_url + " : \t" + String("postData:") + postData, DEBUG); // Print HTTP return code
     httpClient.begin(wifi_client, int_url);
-    httpClient.setTimeout(4000);
+    httpClient.setTimeout(3200);
     httpClient.addHeader("Content-Type", "application/x-www-form-urlencoded");  //Specify content-type header
-    ESP.wdtDisable();
     ESP.wdtFeed();
     int httpCode = httpClient.POST(postData); // Send the request
     ESP.wdtFeed();
-    ESP.wdtEnable(5000);
     //  if ( httpCode == HTTP_CODE_OK) {
     if (httpCode < 0) {
       message(String(" !  -  Code:") + String(httpCode) + " " + String(" \t Message :") + httpClient.errorToString(httpCode) , DEBUG);
@@ -657,6 +643,7 @@ String read_cmd(const String &postData) {
 
       if (httpCode == HTTP_CODE_FOUND || httpCode == HTTP_CODE_OK) {
         ret = httpClient.getString(); // Get the response payload
+        ESP.wdtFeed();
         //message(String(" +  Code:") + String(httpCode) + " PayLoad:" + String(payload), INFO);    //Print request response payload
       } else {
         message(String(" -  Code:") + String(httpCode));// + " PayLoad:" + String(payload), DEBUG);    //Print request response payload
@@ -670,18 +657,17 @@ String read_cmd(const String &postData) {
   return ret;
 }
 
-void postTo(const String &url, const String &postData) {
+const bool postTo(const String &url, const String &postData) {
+  bool ret = false;
   if ((CHECK_INTERNET_CONNECT && internet_access) || !CHECK_INTERNET_CONNECT) {
     String int_url = String(GROWBOOK_URL) + url;
     httpClient.begin(wifi_client, int_url);
     httpClient.setTimeout(2000);
     httpClient.addHeader("Content-Type", "application/x-www-form-urlencoded");  //Specify content-type header
     message(int_url + " : \t" + String("postData:") + postData, DEBUG); // Print HTTP return code
-    ESP.wdtDisable();
     ESP.wdtFeed();
     int httpCode = httpClient.POST(postData); // Send the request
     ESP.wdtFeed();
-    ESP.wdtEnable(5000);
     //  if ( httpCode == HTTP_CODE_OK) {
     if (httpCode < 0) {
       message(String(" !  -  Code:") + String(httpCode) + " " + String(" \t Message :") + httpClient.errorToString(httpCode) , DEBUG);
@@ -689,6 +675,7 @@ void postTo(const String &url, const String &postData) {
     else {
       //String payload = httpClient.getString(); // Get the response payload
       if (httpCode == HTTP_CODE_FOUND || httpCode == HTTP_CODE_OK) {
+        ret = true;
         //message(String(" +  Code:") + String(httpCode) + " PayLoad:" + String(payload), INFO);    //Print request response payload
       } else {
         message(String(" -  Code:") + String(httpCode));// + " PayLoad:" + String(payload), DEBUG);    //Print request response payload
@@ -699,13 +686,13 @@ void postTo(const String &url, const String &postData) {
     message("No internet access", DEBUG);
     delay(20);
   }
+  return ret;
 }
 /**
 
 */
 void growBookPostValues() {
   String url = "plant/cli/" + urlencode(WiFi.hostname());
-  //    httpClient.setTimeout(2000);
   String postData;
   postData = "uptime=" + urlencode(String(uptime)) + "&" + urlencode("light") + "=" + urlencode(String(light_enabled));
   if (humidity_value > 0) {
@@ -723,12 +710,40 @@ void growBookPostValues() {
   if (hydro_value_prev > 0 || hydro_value_prev <= 100) {
     postData += "&hydrometer=" + urlencode(String(hydro_value_prev));
   }
+  if (!reset_info_posted) {
+    rst_info* rinfo = ESP.getResetInfoPtr();
+    struct bootflags bflags = bootmode_detect();
+
+    postData += "&reset_reason=" + urlencode(String(rinfo->reason));
+    postData += "&reset_reason_str=" + urlencode(ESP.getResetReason().c_str());
+    postData += "&reset_exccause=" + urlencode(String(rinfo->exccause));
+    postData += "&reset_epc1=" + urlencode(String(rinfo->epc1));
+    postData += "&reset_epc2=" + urlencode(String(rinfo->epc2));
+    postData += "&reset_epc3=" + urlencode(String(rinfo->epc3));
+    postData += "&reset_excvaddr=" + urlencode(String(rinfo->excvaddr));
+    postData += "&reset_depc=" + urlencode(String(rinfo->depc));
+
+    postData += "&bootflags_raw_rst_cause=" + urlencode(String(bflags.raw_rst_cause));
+    postData += "&bootflags_raw_bootdevice=" + urlencode(String(bflags.raw_bootdevice));
+    postData += "&bootflags_raw_bootmode=" + urlencode(String(bflags.raw_bootmode));
+    postData += "&bootflags_rst_normal_boot=" + urlencode(String(bflags.rst_normal_boot));
+    postData += "&bootflags_rst_reset_pin=" + urlencode(String(bflags.rst_reset_pin));
+    postData += "&bootflags_rst_watchdog=" + urlencode(String(bflags.rst_watchdog));
+    postData += "&bootflags_bootdevice_ram=" + urlencode(String(bflags.bootdevice_ram));
+    postData += "&bootflags_bootdevice_flash=" + urlencode(String(bflags.bootdevice_flash));
+  }
+
 
   postData += "&wifi_channel=" + urlencode(String(WiFi.channel())) + "&" + urlencode("rssi") + "=" + urlencode(String(WiFi.RSSI()));
   postData += "&flash_chip_mode=" + urlencode(String(ESP.getFlashChipMode())) + "&" + urlencode("boot_mode") + "=" + urlencode(String(ESP.getBootMode()));
   postData += "&cpu_freq=" + urlencode(String(ESP.getCpuFreqMHz())) + "&" + urlencode("sdk_version") + "=" + urlencode(String(ESP.getSdkVersion()));
 
-  postTo(url, postData);
+  bool res = postTo(url, postData);
+  //  Check if we not posted reset info AND now we posted AND its PASS on transfer, we not want to update it again
+  if (!reset_info_posted && res) {
+    reset_info_posted = true;
+  }
+
 }
 
 
@@ -769,7 +784,7 @@ DHTesp startSensor(DHTesp &dhtSensor, const unsigned int pin)
 /**
 
 */
-bool check_connectivity(bool force)
+const bool check_connectivity(const bool &force)
 {
   // CEONNECTIVITY - CHECK PING
   if (CHECK_INTERNET_CONNECT || force) {
@@ -839,7 +854,7 @@ void reconnect_cnv() {
 /**
    Set WiFi connection and connect
 */
-bool wifi_connect() {
+const bool wifi_connect() {
   WiFi.mode(WIFI_STA);       //  Disable AP Mode - set mode to WIFI_AP, WIFI_STA, or WIFI_AP_STA.
   WiFi.begin(ssid, password);
 
@@ -879,7 +894,7 @@ bool wifi_connect() {
   Keep type of mesages
 */
 //static inline char *stringFromLogType(enum LogType lt)
-static const char *stringFromLogType(const enum LogType lt) {
+static const char *stringFromLogType(const enum LogType &lt) {
   static const char *strings[] = {"INFO", "WARN", "ERROR", "PASS", "FAIL", "CRITICAL", "DEBUG"};
   return strings[lt];
 }
@@ -891,7 +906,7 @@ void message(const String msg) {
 /**
    Print message to Serial console
 */
-void message(const String msg, const enum LogType lt) {
+void message(const String &msg, const enum LogType &lt) {
   if (MESSAGE_OPT) {
     if (msg.length() == 0) {
       Serial.println(msg);
@@ -915,21 +930,6 @@ void server_start() {
   //    loadMode = MANUAL;
   //    handleRoot();
   //  });
-  //  server.on("/dl", []() {
-  //    disableLoad();
-  //    loadMode = MANUAL;
-  //    handleRoot();
-  //  });
-  //  server.on("/setDallasIndex", []() {
-  //    uploadAndSaveOutsideThermometerIndex();
-  //    handleRoot();
-  //  });
-  //  server.on("/keep", []() {
-  //    last_disable_epoch = 0;
-  //    saveLoadMode();
-  //    handleRoot();
-  //  });
-
   server.onNotFound(handleNotFound);
   message("Staring HTTP server...", INFO);
   server.begin();
@@ -967,15 +967,15 @@ void close_all_services() {
 void start_thermal() {
   message("Found " + String(sensor.getDeviceCount()) + " Thermometer Dallas devices.", INFO);
   message("Parasite power is: " + String(sensor.isParasitePowerMode()), INFO);
-
-  for (int i = 0; i < sensor.getDeviceCount(); i++) {
-    if (!sensor.getAddress(insideThermometer[i], i)) {
-      message("Unable to find address for Device " + String(i) , CRITICAL);
+  short int counter = 0;
+  for (counter = 0; counter < sensor.getDeviceCount(); counter++) {
+    if (!sensor.getAddress(insideThermometer[counter], counter)) {
+      message("Unable to find address for Device " + String(counter) , CRITICAL);
     }
     else {
       // set the resolution to 9 bit (Each Dallas/Maxim device is capable of several different resolutions)
-      sensor.setResolution(insideThermometer[i], TEMPERATURE_PRECISION);
-      message("Device " + String(i) + " [" + getAddressString(insideThermometer[i]) + "] Resolution: " + String(sensor.getResolution(insideThermometer[i])) , INFO);
+      sensor.setResolution(insideThermometer[counter], TEMPERATURE_PRECISION);
+      message("Device " + String(counter) + " [" + getAddressString(insideThermometer[counter]) + "] Resolution: " + String(sensor.getResolution(insideThermometer[counter])) , INFO);
     }
   }
 
@@ -1056,7 +1056,7 @@ void update_time() {
 /**
    Get Temperature
 */
-float getTemperature(const int dev/*=0*/) {
+const float getTemperature(const int &dev/*=0*/) {
   //message("Requesting device " + String(dev), DEBUG);
   sensor.setWaitForConversion(false);   // makes it async
   sensor.requestTemperatures();
@@ -1210,7 +1210,7 @@ void printTemperatureToSerial() {
 /**
 
 */
-String get_thermometers_addr() {
+const String get_thermometers_addr() {
   String data = "[";
   int i = 0;
   int dev_counter = sensor.getDeviceCount();
@@ -1224,7 +1224,7 @@ String get_thermometers_addr() {
 /**
   Convert Dallas Address to String
 */
-String getAddressString(const DeviceAddress deviceAddress) {
+const String getAddressString(const DeviceAddress &deviceAddress) {
   String ret = "";
   uint8_t i;
   for (i = 0; i < 8; i++) {
@@ -1263,7 +1263,7 @@ String urlencode(const String &s) {
 /**
   Write to file content on SPIFFS
 */
-void save_setting(const char* fname, String value) {
+void save_setting(const char* fname, const String &value) {
   File f = SPIFFS.open(fname, "w");
   if (!f) {
     Serial.print("Cannot open file:");
