@@ -31,7 +31,8 @@
 #include <Ticker.h>
 
 /*******************************************************************************************************/
-#define   VERSION                           0.35
+#define   VERSION                           0.36
+// 0.36 Production release, 2019.08.15_13:30  Improve stability
 // 0.35 Production release, 2019.08.14_11:45
 // 0.33 Production release, 2019.08.10_15:14
 // 0.32 Production release, 2019.08.04_18:29
@@ -92,10 +93,10 @@
 #define NTP_UPDATE_COUNTER                  (COUNTER_IN_LOOP_SECOND*60*3)
 #define CHECK_INTERNET_CONNECTIVITY_CTR     (COUNTER_IN_LOOP_SECOND*120)
 
-//#define GROWBOOK_URL_NO_PORT                "192.168.1.206"
-//define GROWBOOK_URL                        "http://192.168.1.206:8082/"
+#define GROWBOOK_URL_NO_PORT                "192.168.1.206"
+#define GROWBOOK_URL                        "http://192.168.1.206:8082/"
 
-#define GROWBOOK_URL                        "http://growbook.anshamis.com/"
+//#define GROWBOOK_URL                        "http://growbook.anshamis.com/"
 
 
 // INTERRUPT
@@ -216,7 +217,9 @@ void ICACHE_RAM_ATTR onTimerISR()
 {
   // Update uptime if boot time found and not process update_time
   if (boot_time > 0 || !update_time_flag) {
-    uptime = timeClient.getEpochTime() - boot_time;
+    if (internet_access) {
+      uptime = timeClient.getEpochTime() - boot_time;
+    }
   }
   // We cannot run timer if there is firmware update process
   if (!firmwareUpdateFlag) {
@@ -588,7 +591,7 @@ const bool sonsor_dht(DHTesp &dhtSensor) {
   } else {
     growBookPostValue("BAD_HUMIDITY_VALUE_" + serial_num, String(ret.humidity) + ":" + String(absoluteHumidity) + ":" + String(ret.temperature) + ":" + String(heat_index) + ":Status:" + dhtSensor.getStatusString());
   }
-  
+
   //  if (humidity < 10 || (humidity > 90 && humidity <= 100)) {
   //    growBookPostValue("humidity", String(humidity));
   //  }
@@ -826,6 +829,7 @@ void wifi_check()
     ESP.wdtFeed();
     // Check if not connected , disable all network services, reconnect , enable all network services
     if (WiFi.status() != WL_CONNECTED) {
+      internet_access = 0;
       message("WIFI DISCONNECTED", FAIL_t);
       reconnect_cnv();
       delay(1000);
@@ -837,6 +841,9 @@ void wifi_check()
    Reconnect to wifi - in success enable all services and update time
 */
 void reconnect_cnv() {
+  internet_access = 0;
+  update_time_flag = true;
+  delay(500);
   close_all_services();
   delay(1000);
   if (wifi_connect()) {
@@ -849,6 +856,7 @@ void reconnect_cnv() {
     delay(1000);
     ESP.wdtFeed();
   }
+  update_time_flag = false;
 }
 
 /**
@@ -911,7 +919,15 @@ void message(const String &msg, const enum LogType &lt) {
     if (msg.length() == 0) {
       Serial.println(msg);
     } else {
-      Serial.println(String(uptime) + ":" + String(timeClient.getEpochTime()) + " : " + timeClient.getFormattedTime() + " : " + String(stringFromLogType(lt)) + " : " + msg);
+      update_time_flag = true;
+      String epoch = "";
+      String f_time = "";
+      if (internet_access) {
+        epoch = String(timeClient.getEpochTime());
+        f_time = String(timeClient.getFormattedTime());
+      }
+      update_time_flag = false;
+      Serial.println(String(uptime) + ":" + epoch + " : " + f_time + " : " + String(stringFromLogType(lt)) + " : " + msg);
     }
   }
 }
