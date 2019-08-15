@@ -93,10 +93,10 @@
 #define NTP_UPDATE_COUNTER                  (COUNTER_IN_LOOP_SECOND*60*3)
 #define CHECK_INTERNET_CONNECTIVITY_CTR     (COUNTER_IN_LOOP_SECOND*120)
 
-#define GROWBOOK_URL_NO_PORT                "192.168.1.206"
-#define GROWBOOK_URL                        "http://192.168.1.206:8082/"
+//#define GROWBOOK_URL_NO_PORT                "192.168.1.206"
+//#define GROWBOOK_URL                        "http://192.168.1.206:8082/"
 
-//#define GROWBOOK_URL                        "http://growbook.anshamis.com/"
+#define GROWBOOK_URL                        "http://growbook.anshamis.com/"
 
 
 // INTERRUPT
