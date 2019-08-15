@@ -17,17 +17,30 @@
 #include "Esp.h"
 #include <NTPClient.h>
 #include <Wire.h>
+
+#ifdef ESP32
+#include <WiFi.h>
+#include <ESP32Ping.h>
+//#include <WebServer.h>
+#include <ESPmDNS.h>
+#include "ESP32httpUpdate.h"
+#include <HTTPClient.h>
+#else
 #include <ESP8266WiFi.h>
 #include <ESP8266Ping.h>
-#include <WiFiClient.h>
-#include <ESP8266WebServer.h>
+//#include <ESP8266WebServer.h>
 #include <ESP8266mDNS.h>
 #include "ESP8266httpUpdate.h"
+#include <ESP8266HTTPClient.h>
+#endif
+
+
+#include <WiFiClient.h>
+
 #include "FS.h"
 #include <OneWire.h>
 #include <DallasTemperature.h>
 #include "DHTesp.h"
-#include <ESP8266HTTPClient.h>
 #include <Ticker.h>
 
 /*******************************************************************************************************/
@@ -52,11 +65,21 @@
 #define   LOW_TEMPERATURE                   -55
 /*******************************************************************************************************/
 // Thermometer, hydrometer, humidity light sensor and wire settings
+#ifdef ESP32
+#define   HYDROMETER_PIN                    A0
+#define   LIGHT_SENSOR_D0                   16
+#define   HYDROMETER_D0_PIN                 5
+#define   ONE_WIRE_BUS                      2                      // D4 2
+#define   DHT_HUMIDITY_PIN                  14                      // 14 D5 of NodeMCU is GPIO14
+#else
 #define   HYDROMETER_PIN                    A0
 #define   LIGHT_SENSOR_D0                   D0
 #define   HYDROMETER_D0_PIN                 D1
-#define   ONE_WIRE_BUS                      D4                      // D4 2
+#define   ONE_WIRE_BUS                      D2                      // D4 2
 #define   DHT_HUMIDITY_PIN                  D5                      // 14 D5 of NodeMCU is GPIO14
+#endif
+
+
 
 #define   TEMPERATURE_PRECISION             12                      // Possible value 9-12
 #define   NUMBER_OF_SENSORS                 4
@@ -93,10 +116,10 @@
 #define NTP_UPDATE_COUNTER                  (COUNTER_IN_LOOP_SECOND*60*3)
 #define CHECK_INTERNET_CONNECTIVITY_CTR     (COUNTER_IN_LOOP_SECOND*120)
 
-//#define GROWBOOK_URL_NO_PORT                "192.168.1.206"
-//#define GROWBOOK_URL                        "http://192.168.1.206:8082/"
+#define GROWBOOK_URL_NO_PORT                "192.168.1.206"
+#define GROWBOOK_URL                        "http://192.168.1.206:8082/"
 
-#define GROWBOOK_URL                        "http://growbook.anshamis.com/"
+//#define GROWBOOK_URL                        "http://growbook.anshamis.com/"
 
 
 // INTERRUPT
@@ -177,7 +200,11 @@ String              sensorsSingleLog          = "";
 */
 OneWire             oneWire(ONE_WIRE_BUS);
 DallasTemperature   sensor(&oneWire);
-ESP8266WebServer    server(80);
+//#ifdef ESP32
+//WebServer    server(80);
+//#else
+//ESP8266WebServer    server(80);
+//#endif
 DeviceAddress       insideThermometer[NUMBER_OF_SENSORS];       // arrays to hold device address
 WiFiUDP             ntpUDP;
 IPAddress           pingServer (8, 8, 8, 8);    // Ping server
@@ -213,6 +240,20 @@ const float getTemperature(const int &dev = 0);
 
 
 //=======================================================================
+#ifdef ESP32
+hw_timer_t * timer = NULL;
+
+void IRAM_ATTR onTimer()
+{
+  // Update uptime if boot time found and not process update_time
+  if (boot_time > 0 || !update_time_flag) {
+    if (internet_access) {
+      uptime = timeClient.getEpochTime() - boot_time;
+    }
+  }
+}
+
+#else
 void ICACHE_RAM_ATTR onTimerISR()
 {
   // Update uptime if boot time found and not process update_time
@@ -226,6 +267,8 @@ void ICACHE_RAM_ATTR onTimerISR()
     timer1_write(INTERRUPT_TIME);//12us
   }
 }
+#endif
+
 
 /**
   Setup the controller
@@ -253,7 +296,7 @@ void setup(void) {
 
   //Serial.println(build_index());
   wifi_connect();
-  server_start();
+  //  server_start();
   timeClient.begin();
   start_thermal();
   //timeClient.update();
@@ -265,8 +308,10 @@ void setup(void) {
   delay(1000);
   wifi_check();
   print_all_info();
+#ifdef ESP8266
   ESP.wdtEnable(10000);
   ESP.wdtDisable();
+#endif
   delay(1000);
   check_connectivity(true);
   while (counter < 100) {
@@ -275,7 +320,9 @@ void setup(void) {
       break;
     }
 
+#ifdef ESP8266
     ESP.wdtFeed();
+#endif
     delay(100);
     counter += 1;
     if (counter == 50) {
@@ -286,9 +333,24 @@ void setup(void) {
   counter = 0;
   update_time();
   message(" ----> Start Loop <----", PASS);
+#ifdef ESP32
+  timer = timerBegin(0, 80, true);
+
+  // Attach onTimer function to our timer.
+  timerAttachInterrupt(timer, &onTimer, true);
+
+  // Set alarm to call onTimer function every second (value in microseconds).
+  // Repeat the alarm (third parameter)
+  timerAlarmWrite(timer, 1000000, true);
+
+  // Start an alarm
+  timerAlarmEnable(timer);
+#else
   timer1_attachInterrupt(onTimerISR);
   timer1_enable(TIM_DIV16, TIM_EDGE, TIM_SINGLE);
   timer1_write(INTERRUPT_TIME); //120000 us
+#endif
+
 }
 
 
@@ -304,8 +366,10 @@ void loop(void) {
     message("Boot time updated...", DEBUG);
   }
 
-  server.handleClient();
+  //  server.handleClient();
+#ifdef ESP8266
   ESP.wdtFeed();
+#endif
   wifi_check();
 
   check_light(false);
@@ -347,7 +411,9 @@ void loop(void) {
 
   if (counter % CALL_SERVER_COUNTER == 0 && internet_access) {
     growBookPostValues();
+#ifdef ESP8266
     ESP.wdtFeed();
+#endif
   }
 
   check_connectivity(false);
@@ -402,13 +468,22 @@ void read_cmd_flow()
 void update_firmware(const String &value)
 {
   firmwareUpdateFlag = true;
+#ifdef ESP32
+  timerAlarmDisable(timer);
+#endif
   message("Update firmware from " + String(value) , WARNING);
+#ifdef ESP8266
   ESP.wdtFeed();
+#endif
   ESPhttpUpdate.rebootOnUpdate(true);
+#ifdef ESP8266
   ESP.wdtFeed();
+#endif
   delay(1000); // Wait till timer is finished
   HTTPUpdateResult ret = ESPhttpUpdate.update(value);
+#ifdef ESP8266
   ESP.wdtFeed();
+#endif
   message("Resetting ESP" , WARNING);
   switch (ret) {
     case HTTP_UPDATE_FAILED:
@@ -421,10 +496,16 @@ void update_firmware(const String &value)
       message("[update] Update ok."); // may not called we reboot the ESP
       break;
   }
+#ifdef ESP8266
   ESP.wdtFeed();
+#endif
   interrupts();
   firmwareUpdateFlag = false;
+#ifdef ESP32
+  timerAlarmEnable(timer);
+#else
   timer1_write(INTERRUPT_TIME);//12us
+#endif
   delay(500);
 }
 
@@ -452,7 +533,7 @@ const bool sensors_hydrometer() {
   bool epoch_trigger = timeClient.getEpochTime() % 7 == 0;
   if (hydro_value >= 0 && hydro_value <= 100) {
     if (hydro_value != hydro_value_prev || hydro_value_prev == 0 || epoch_trigger) {
-      growBookPostEvent(String(hydro_value), model + "_-_" + String(WiFi.hostname()) + String("_-_0"), TypeNames[HYDROMETER], "", "", "");
+      growBookPostEvent(String(hydro_value), model + "_-_" + getNodeName() + String("_-_0"), TypeNames[HYDROMETER], "", "", "");
       hydro_value_prev = hydro_value;
     }
   } else {
@@ -501,7 +582,7 @@ const bool sensors_light() {
   check_light(true);
   //sensorsSingleLog += " LIGHT IS " + String(light_enabled) + " ";
   //if (change_found) {
-  String serail = "LDR_" + String(WiFi.hostname()) + String("_" + String(LIGHT_SENSOR_D0));
+  String serail = "LDR_" + getNodeName() + String("_" + String(LIGHT_SENSOR_D0));
   growBookPostValue("light", String(light_enabled));
   //growBookPostEvent(String(light_enabled), serail, TypeNames[LIGHT], "", "", "");
   /// }
@@ -525,14 +606,18 @@ const bool sonsors_dallas()
       while (tmp_1 != tmp_2 && _c < 10) {
         _c++;
         delay(20 * _c);
+#ifdef ESP8266
         ESP.wdtFeed();
+#endif
         tmp_1 = getTemperature(i);
         tmp_2 = getTemperature(i);
         if (tmp_1 > HIGH_TEMPERATURE && tmp_1 == tmp_2) {
           message("High temperature found, recheck. Current" + String(tmp_1) + " Threshhold[HIGH_TEMPERATURE]: " + String(HIGH_TEMPERATURE), CRITICAL);
           tmp_1 = 0;
           delay(200);
+#ifdef ESP8266
           ESP.wdtFeed();
+#endif
         }
       }
       current_temp[i] = tmp_1;
@@ -585,7 +670,7 @@ const bool sonsor_dht(DHTesp &dhtSensor) {
   //float dewPoint = dhtSensor.computeDewPoint(ret.temperature, ret.humidity, false);
   float absoluteHumidity = dhtSensor.computeAbsoluteHumidity(ret.temperature, ret.humidity, false);
   String model = String("DHT") + String(dhtSensor.getModel()) + String(dhtSensor.getModel());
-  String serial_num = model + "_-_" + String(WiFi.hostname()) + String("_-_") + String(dhtSensor.getPin());
+  String serial_num = model + "_-_" + getNodeName() + String("_-_") + String(dhtSensor.getPin());
   if (String(heat_index) != "nan") {
     growBookPostEvent(String(ret.humidity), serial_num, TypeNames[HUMIDITY], String(absoluteHumidity), String(ret.temperature), String(heat_index));
   } else {
@@ -604,7 +689,7 @@ void growBookPostEvent(const String &value, const String &sensor, const String &
   String note = "";
   String url = "event/new?type=" + String(type);
   String postData;
-  postData = String("rssi=") + urlencode(String(WiFi.RSSI())) + "&version=" + urlencode(String(VERSION)) + "&uptime=" + urlencode(String(uptime)) + "&value=" + urlencode(value) + "&sensor_id=" + urlencode(sensor) + "&note=" + urlencode(note) + "&plant_id=" + urlencode(WiFi.hostname());
+  postData = String("rssi=") + urlencode(String(WiFi.RSSI())) + "&uptime=" + urlencode(String(uptime)) + "&value=" + urlencode(value) + "&sensor_id=" + urlencode(sensor) + "&note=" + urlencode(note) + "&plant_id=" + urlencode(getNodeName());
   if ( value1 != "" ) {
     postData += "&value1=" + urlencode(value1);
   }
@@ -623,21 +708,25 @@ void growBookPostEvent(const String &value, const String &sensor, const String &
 */
 void growBookPostValue(const String &key, const String &value)
 {
-  postTo("plant/cli/" + urlencode(WiFi.hostname()), String("key=") + urlencode(key) + "&value=" + urlencode(value));
+  postTo("plant/cli/" + urlencode(getNodeName()), String("key=") + urlencode(key) + "&value=" + urlencode(value));
 }
 
 String read_cmd(const String &postData) {
   String ret = "";
   if ((CHECK_INTERNET_CONNECT && internet_access) || !CHECK_INTERNET_CONNECT) {
-    String url = "plant/read_cmd/" + urlencode(WiFi.hostname());
+    String url = "plant/read_cmd/" + urlencode(getNodeName());
     String int_url = String(GROWBOOK_URL) + url;
     message(int_url + " : \t" + String("postData:") + postData, DEBUG); // Print HTTP return code
     httpClient.begin(wifi_client, int_url);
     httpClient.setTimeout(3200);
     httpClient.addHeader("Content-Type", "application/x-www-form-urlencoded");  //Specify content-type header
+#ifdef ESP8266
     ESP.wdtFeed();
+#endif
     int httpCode = httpClient.POST(postData); // Send the request
+#ifdef ESP8266
     ESP.wdtFeed();
+#endif
     //  if ( httpCode == HTTP_CODE_OK) {
     if (httpCode < 0) {
       message(String(" !  -  Code:") + String(httpCode) + " " + String(" \t Message :") + httpClient.errorToString(httpCode) , DEBUG);
@@ -646,7 +735,9 @@ String read_cmd(const String &postData) {
 
       if (httpCode == HTTP_CODE_FOUND || httpCode == HTTP_CODE_OK) {
         ret = httpClient.getString(); // Get the response payload
+#ifdef ESP8266
         ESP.wdtFeed();
+#endif
         //message(String(" +  Code:") + String(httpCode) + " PayLoad:" + String(payload), INFO);    //Print request response payload
       } else {
         message(String(" -  Code:") + String(httpCode));// + " PayLoad:" + String(payload), DEBUG);    //Print request response payload
@@ -668,9 +759,13 @@ const bool postTo(const String &url, const String &postData) {
     httpClient.setTimeout(2000);
     httpClient.addHeader("Content-Type", "application/x-www-form-urlencoded");  //Specify content-type header
     message(int_url + " : \t" + String("postData:") + postData, DEBUG); // Print HTTP return code
+#ifdef ESP8266
     ESP.wdtFeed();
+#endif
     int httpCode = httpClient.POST(postData); // Send the request
+#ifdef ESP8266
     ESP.wdtFeed();
+#endif
     //  if ( httpCode == HTTP_CODE_OK) {
     if (httpCode < 0) {
       message(String(" !  -  Code:") + String(httpCode) + " " + String(" \t Message :") + httpClient.errorToString(httpCode) , DEBUG);
@@ -691,13 +786,22 @@ const bool postTo(const String &url, const String &postData) {
   }
   return ret;
 }
+
+const String getNodeName()
+{
+#ifdef ESP32
+  return WiFi.getHostname();
+#else
+  return WiFi.hostname();
+#endif
+}
 /**
 
 */
 void growBookPostValues() {
-  String url = "plant/cli/" + urlencode(WiFi.hostname());
+  String url = "plant/cli/" + urlencode(getNodeName());
   String postData;
-  postData = "uptime=" + urlencode(String(uptime)) + "&" + urlencode("light") + "=" + urlencode(String(light_enabled));
+  postData = "uptime=" + urlencode(String(uptime)) + "&" + urlencode("light") + "=" + urlencode(String(light_enabled)) + "&version=" + urlencode(String(VERSION));
   if (humidity_value > 0) {
     postData += "&humidity=" + urlencode(String(humidity_value));
   }
@@ -713,7 +817,12 @@ void growBookPostValues() {
   if (hydro_value_prev > 0 || hydro_value_prev <= 100) {
     postData += "&hydrometer=" + urlencode(String(hydro_value_prev));
   }
-  if (!reset_info_posted) {
+
+#ifdef ESP8266
+
+  postData += "&boot_mode=" + urlencode(String(ESP.getBootMode()));
+  if (!reset_info_posted)
+  {
     rst_info* rinfo = ESP.getResetInfoPtr();
     struct bootflags bflags = bootmode_detect();
 
@@ -736,9 +845,10 @@ void growBookPostValues() {
     postData += "&bootflags_bootdevice_flash=" + urlencode(String(bflags.bootdevice_flash));
   }
 
+#endif
 
   postData += "&wifi_channel=" + urlencode(String(WiFi.channel())) + "&" + urlencode("rssi") + "=" + urlencode(String(WiFi.RSSI()));
-  postData += "&flash_chip_mode=" + urlencode(String(ESP.getFlashChipMode())) + "&" + urlencode("boot_mode") + "=" + urlencode(String(ESP.getBootMode()));
+  postData += "&flash_chip_mode=" + urlencode(String(ESP.getFlashChipMode()));
   postData += "&cpu_freq=" + urlencode(String(ESP.getCpuFreqMHz())) + "&" + urlencode("sdk_version") + "=" + urlencode(String(ESP.getSdkVersion()));
 
   bool res = postTo(url, postData);
@@ -826,7 +936,9 @@ void wifi_check()
   if (WiFi.status() != WL_CONNECTED) {
     internet_access = 0;
     delay(2000);
+#ifdef ESP8266
     ESP.wdtFeed();
+#endif
     // Check if not connected , disable all network services, reconnect , enable all network services
     if (WiFi.status() != WL_CONNECTED) {
       internet_access = 0;
@@ -848,13 +960,15 @@ void reconnect_cnv() {
   delay(1000);
   if (wifi_connect()) {
     timeClient.begin();
-    server_start();
+    //    server_start();
     delay(200);
     update_time();
   } else {
     message("Cannot reconnect to WIFI... ", FAIL_t);
     delay(1000);
+#ifdef ESP8266
     ESP.wdtFeed();
+#endif
   }
   update_time_flag = false;
 }
@@ -871,7 +985,9 @@ const bool wifi_connect() {
   int con_counter = 0;
   while (WiFi.status() != WL_CONNECTED) {
     delay(200);
+#ifdef ESP8266
     ESP.wdtFeed();
+#endif
     Serial.print(".");
     con_counter++;
     if (con_counter % 20 == 0) {
@@ -933,24 +1049,24 @@ void message(const String &msg, const enum LogType &lt) {
 }
 
 
-/**
-   Start WEB server
-*/
-void server_start() {
-  server.on("/", handleRoot);
-  server.on("/inline", []() {
-    server.send(200, "text/plain", "this works as well");
-  });
-  //  server.on("/el", []() {
-  //    enableLoad();
-  //    loadMode = MANUAL;
-  //    handleRoot();
-  //  });
-  server.onNotFound(handleNotFound);
-  message("Staring HTTP server...", INFO);
-  server.begin();
-  message("HTTP server started", PASS);
-}
+///**
+//   Start WEB server
+//*/
+//void server_start() {
+//  server.on("/", handleRoot);
+//  server.on("/inline", []() {
+//    server.send(200, "text/plain", "this works as well");
+//  });
+//  //  server.on("/el", []() {
+//  //    enableLoad();
+//  //    loadMode = MANUAL;
+//  //    handleRoot();
+//  //  });
+//  server.onNotFound(handleNotFound);
+//  message("Staring HTTP server...", INFO);
+//  server.begin();
+//  message("HTTP server started", PASS);
+//}
 
 
 /**
@@ -961,16 +1077,25 @@ void close_all_services() {
 
   message(" ----> Closing NTP Client...", INFO);
   timeClient.end();
+  //#ifdef ESP8266
+  //  ESP.wdtFeed();
+  //#endif
+  //  message(" ----> Closing WEB Server...", INFO);
+  //  server.close();
+#ifdef ESP8266
   ESP.wdtFeed();
-  message(" ----> Closing WEB Server...", INFO);
-  server.close();
-  ESP.wdtFeed();
+#endif
   message(" ----> Disconnecting WIFI...", INFO);
   WiFi.disconnect();
+#ifdef ESP8266
   ESP.wdtFeed();
+#endif
   message(" ----> Disabling WiFi...", INFO);
   WiFi.mode(WIFI_OFF);
+#ifdef ESP8266
   ESP.wdtFeed();
+#endif
+
   message(" ----> WiFi disabled...", INFO);
 
   yield();
@@ -997,45 +1122,45 @@ void start_thermal() {
 
 }
 
-/**
-*/
-String build_index() {
-
-  String ret_js = String("") + "load = \n{" +
-                  "'internet_access': '" + String(internet_access) + "'," +
-                  "'current_temperature_0': '" + String(current_temp[0]) + "'," +
-                  "'current_temperature_1': '" + String(current_temp[1]) + "'," +
-                  "'current_temperature_2': '" + String(current_temp[2]) + "'," +
-                  "'current_temperature_3': '" + String(current_temp[3]) + "'," +
-                  "'flash_chip_id': '" + String(ESP.getFlashChipId()) + "'," +
-                  "'flash_chip_size': '" + String(ESP.getFlashChipSize()) + "'," +
-                  "'flash_chip_speed': '" + String(ESP.getFlashChipSpeed()) + "'," +
-                  "'flash_chip_mode': '" + String(ESP.getFlashChipMode()) + "'," +
-                  "'core_version': '" + ESP.getCoreVersion() + "'," +
-                  "'sdk_version': '" + String(ESP.getSdkVersion()) + "'," +
-                  "'boot_version': '" + ESP.getBootVersion() + "'," +
-                  "'boot_mode': '" + String(ESP.getBootMode()) + "'," +
-                  "'cpu_freq': '" + String(ESP.getCpuFreqMHz()) + "'," +
-                  "'mac_addr': '" + WiFi.macAddress() + "'," +
-                  "'wifi_channel': '" + String(WiFi.channel()) + "'," +
-                  "'rssi': '" + WiFi.RSSI() + "'," +
-                  "'sketch_size': '" + String(ESP.getSketchSize()) + "'," +
-                  "'free_sketch_size': '" + String(ESP.getFreeSketchSpace()) + "'," +
-                  "'temperature_precision': '" + String(TEMPERATURE_PRECISION) + "'," +
-                  "'time_str': '" + timeClient.getFormattedTime() + "'," +
-                  "'time_epoch': '" + timeClient.getEpochTime() + "'," +
-                  "'hostname': '" + WiFi.hostname() + "'" +
-                  "};\n";
-  String ret = String("") + "<!DOCTYPE html><html lang='en'><head><meta charset='UTF-8'><title>Load Info</title></head>" +
-               " <script src='https://ajax.googleapis.com/ajax/libs/jquery/3.2.0/jquery.min.js'></script>\n" +
-               " <script src='http://tm.anshamis.com/js/heater.js'></script>\n" +
-               " <link rel='stylesheet' type='text/css' href='http://tm.anshamis.com/css/heater.css'>\n" +
-               "<body><script>" + ret_js + "</script>\n" +
-               "<div id='content'></div>" +
-               "<script>\n " +               "$(document).ready(function(){ onLoadPageLoad(); });</script>\n" +
-               "</body></html>";
-  return ret;
-}
+///**
+//*/
+//String build_index() {
+//
+//  String ret_js = String("") + "load = \n{" +
+//                  "'internet_access': '" + String(internet_access) + "'," +
+//                  "'current_temperature_0': '" + String(current_temp[0]) + "'," +
+//                  "'current_temperature_1': '" + String(current_temp[1]) + "'," +
+//                  "'current_temperature_2': '" + String(current_temp[2]) + "'," +
+//                  "'current_temperature_3': '" + String(current_temp[3]) + "'," +
+//                  "'flash_chip_id': '" + String(ESP.getFlashChipId()) + "'," +
+//                  "'flash_chip_size': '" + String(ESP.getFlashChipSize()) + "'," +
+//                  "'flash_chip_speed': '" + String(ESP.getFlashChipSpeed()) + "'," +
+//                  "'flash_chip_mode': '" + String(ESP.getFlashChipMode()) + "'," +
+//                  "'core_version': '" + ESP.getCoreVersion() + "'," +
+//                  "'sdk_version': '" + String(ESP.getSdkVersion()) + "'," +
+//                  "'boot_version': '" + ESP.getBootVersion() + "'," +
+//                  "'boot_mode': '" + String(ESP.getBootMode()) + "'," +
+//                  "'cpu_freq': '" + String(ESP.getCpuFreqMHz()) + "'," +
+//                  "'mac_addr': '" + WiFi.macAddress() + "'," +
+//                  "'wifi_channel': '" + String(WiFi.channel()) + "'," +
+//                  "'rssi': '" + WiFi.RSSI() + "'," +
+//                  "'sketch_size': '" + String(ESP.getSketchSize()) + "'," +
+//                  "'free_sketch_size': '" + String(ESP.getFreeSketchSpace()) + "'," +
+//                  "'temperature_precision': '" + String(TEMPERATURE_PRECISION) + "'," +
+//                  "'time_str': '" + timeClient.getFormattedTime() + "'," +
+//                  "'time_epoch': '" + timeClient.getEpochTime() + "'," +
+//                  "'hostname': '" + WiFi.hostname() + "'" +
+//                  "};\n";
+//  String ret = String("") + "<!DOCTYPE html><html lang='en'><head><meta charset='UTF-8'><title>Load Info</title></head>" +
+//               " <script src='https://ajax.googleapis.com/ajax/libs/jquery/3.2.0/jquery.min.js'></script>\n" +
+//               " <script src='http://tm.anshamis.com/js/heater.js'></script>\n" +
+//               " <link rel='stylesheet' type='text/css' href='http://tm.anshamis.com/css/heater.css'>\n" +
+//               "<body><script>" + ret_js + "</script>\n" +
+//               "<div id='content'></div>" +
+//               "<script>\n " +               "$(document).ready(function(){ onLoadPageLoad(); });</script>\n" +
+//               "</body></html>";
+//  return ret;
+//}
 
 /**
    Update time by NTP client
@@ -1046,7 +1171,7 @@ void update_time() {
   if (timeClient.getEpochTime() < INCORRECT_EPOCH) {
     unsigned short counter_tmp = 0;
     while (timeClient.getEpochTime() < INCORRECT_EPOCH && counter_tmp < 10) {
-      message("Incorrect time, trying to update: #:" + String(counter_tmp) , CRITICAL);
+      message("Incorrect time, trying to update: #:" + String(counter_tmp) + " \t " + String(timeClient.getEpochTime()) , CRITICAL);
       counter_tmp++;
       timeClient.update();
       timeClient.forceUpdate();
@@ -1140,38 +1265,38 @@ const float getTemperature(const int &dev/*=0*/) {
 //  }
 //}
 
-/**
-  WEB Server function
-*/
-void handleNotFound() {
-  String message = "File Not Found\n\n";
-  message += "URI: " + server.uri() + "\nMethod: ";
-  message += (server.method() == HTTP_GET) ? "GET" : "POST";
-  message += "\nArguments: ";
-  message += server.args() + "\n";
-  for (uint8_t i = 0; i < server.args(); i++) {
-    message += " " + server.argName(i) + ": " + server.arg(i) + "\n";
-  }
-  server.send(404, "text/plain", message);
-}
-
-/**
-  WEB Server function
-*/
-void handleRoot() {
-
-  //  for (uint8_t i=0; i<server.args(); i++){
-  //    message += " " + server.argName(i) + ": " + server.arg(i) + "\n";
-  //  }
-  //  message += server.client();
-  String message = build_index();
-  server.send(200, "text/html", message);
-}
+///**
+//  WEB Server function
+//*/
+//void handleNotFound() {
+//  String message = "File Not Found\n\n";
+//  message += "URI: " + server.uri() + "\nMethod: ";
+//  message += (server.method() == HTTP_GET) ? "GET" : "POST";
+//  message += "\nArguments: ";
+//  message += server.args() + "\n";
+//  for (uint8_t i = 0; i < server.args(); i++) {
+//    message += " " + server.argName(i) + ": " + server.arg(i) + "\n";
+//  }
+//  server.send(404, "text/plain", message);
+//}
+//
+///**
+//  WEB Server function
+//*/
+//void handleRoot() {
+//
+//  //  for (uint8_t i=0; i<server.args(); i++){
+//  //    message += " " + server.argName(i) + ": " + server.arg(i) + "\n";
+//  //  }
+//  //  message += server.client();
+//  String message = build_index();
+//  server.send(200, "text/html", message);
+//}
 
 
 void print_reset_info()
 {
-
+#ifdef ESP8266
   rst_info* rinfo = ESP.getResetInfoPtr();
 
   Serial.printf("rinfo->reason:   %d, %s\n", rinfo->reason, ESP.getResetReason().c_str());
@@ -1206,6 +1331,7 @@ void print_reset_info()
   } else {
     Serial.println("\n\n\n\n\n\n\n\n\n\n\nRESET_FOUND\n\n\n\n\n");
   }
+#endif
 }
 ////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////
@@ -1322,7 +1448,14 @@ void print_all_info() {
   message("MIN_TEMPERATURE_TH \t:" + String(MIN_TEMPERATURE_TH) + " \t MIN_HUMIDITY_TH \t:" + String(MIN_HUMIDITY_TH), INFO);
   message("CHECK_INTERNET_CONNECT \t:" + String(CHECK_INTERNET_CONNECT), INFO);
   message("DHTesp_MODEL \t:" + String(dhtMain.getModel()), INFO);
-  message("HostName: " + WiFi.hostname() + " |Ch: " + String(WiFi.channel()) + " |RSSI: " + WiFi.RSSI() + " |MAC: " + WiFi.macAddress() + " \t Flash Chip Id/Size/Speed/Mode: " + String(ESP.getFlashChipId()) + "/" + String(ESP.getFlashChipSize()) + "/" + String(ESP.getFlashChipSpeed()) + "/" + String(ESP.getFlashChipMode()), INFO);
+#ifdef ESP8266
+  message("HostName: " + getNodeName() + " |Ch: " + String(WiFi.channel()) + " |RSSI: " + WiFi.RSSI() + " |MAC: " + WiFi.macAddress() + " \t Flash Chip Id/Size/Speed/Mode: " + String(ESP.getFlashChipId()) + "/" + String(ESP.getFlashChipSize()) + "/" + String(ESP.getFlashChipSpeed()) + "/" + String(ESP.getFlashChipMode()), INFO);
   message("SdkVersion: " + String(ESP.getSdkVersion()) + "\tCoreVersion: " + ESP.getCoreVersion() + "\tBootVersion: " + ESP.getBootVersion() + "\t CpuFreqMHz: " + String(ESP.getCpuFreqMHz()) + " \tBootMode: " + String(ESP.getBootMode()) + "\tSketchSize: " + String(ESP.getSketchSize()) + "\tFreeSketchSpace: " + String(ESP.getFreeSketchSpace()), INFO);
+
+#endif
+#ifdef ESP32
+  message("HostName: " + getNodeName() + " |Ch: " + String(WiFi.channel()) + " |RSSI: " + WiFi.RSSI() + " |MAC: " + WiFi.macAddress(), INFO);
+  message("SdkVersion: " + String(ESP.getSdkVersion()) + "\t CpuFreqMHz: " + String(ESP.getCpuFreqMHz()) + " \tSketchSize: " + String(ESP.getSketchSize()) + "\tFreeSketchSpace: " + String(ESP.getFreeSketchSpace()), INFO);
+#endif
   //message("getResetReason: " + ESP.getResetReason() + " |getResetInfo: " + ESP.getResetInfo() + " |Address : " + getAddressString(insideThermometer[0]), INFO);
 }
