@@ -31,7 +31,6 @@
 #else
 
 #include <ESP8266WiFi.h>
-#include <ESP8266WiFiSTA.h>
 #include <ESP8266Ping.h>
 //#include <ESP8266WebServer.h>
 #include <ESP8266mDNS.h>
@@ -50,7 +49,8 @@
 #include <Ticker.h>
 
 /*******************************************************************************************************/
-#define   VERSION                           0.36
+#define   VERSION                           0.37
+// 0.37 Production release, 2019.08.16_15:55  Devide code to files, improve DHT detection
 // 0.36 Production release, 2019.08.15_13:30  Improve stability
 // 0.35 Production release, 2019.08.14_11:45
 // 0.33 Production release, 2019.08.10_15:14
@@ -85,7 +85,7 @@
 #define   HYDROMETER_PIN                    A0
 #define   LIGHT_SENSOR_D0                   D0
 #define   HYDROMETER_D0_PIN                 D1
-#define   ONE_WIRE_BUS                      D2                      // D4 2
+#define   ONE_WIRE_BUS                      D4                      // D4 2
 #define   DHT_HUMIDITY_PIN                  D5                      // 14 D5 of NodeMCU is GPIO14
 
 #endif
@@ -127,9 +127,7 @@
 #define NTP_UPDATE_COUNTER                  (COUNTER_IN_LOOP_SECOND*60*3)
 #define CHECK_INTERNET_CONNECTIVITY_CTR     (COUNTER_IN_LOOP_SECOND*120)
 
-#define GROWBOOK_URL_NO_PORT                "192.168.1.206"
 #define GROWBOOK_URL                        "http://192.168.1.206:8082/"
-
 //#define GROWBOOK_URL                        "http://growbook.anshamis.com/"
 
 
@@ -156,28 +154,27 @@ hw_timer_t * timer = NULL;
 //ESP8266WebServer    server(80);
 #endif
 
-OneWire             oneWire(ONE_WIRE_BUS);
-DallasTemperature   sensor(&oneWire);
-DeviceAddress       insideThermometer[NUMBER_OF_SENSORS];       // arrays to hold device address
-WiFiUDP             ntpUDP;
-IPAddress           pingServer (8, 8, 8, 8);    // Ping server
-float               current_temp[NUMBER_OF_SENSORS];
-/**
-    You can specify the time server pool and the offset (in seconds, can be changed later with setTimeOffset()).
+OneWire               oneWire(ONE_WIRE_BUS);
+DallasTemperature     sensor(&oneWire);
+DeviceAddress         insideThermometer[NUMBER_OF_SENSORS];       // arrays to hold device address
+IPAddress             pingServer (8, 8, 8, 8);    // Ping server
+DHTesp                dhtMain;
+HTTPClient            httpClient;    //Declare object of class HTTPClient
+WiFiClient            wifi_client;
+WiFiUDP               ntpUDP;
+NTPClient             timeClient(ntpUDP, NTP_SERVER, NTP_TIME_OFFSET_SEC, NTP_UPDATE_INTERVAL_MS);
+/** You can specify the time server pool and the offset (in seconds, can be changed later with setTimeOffset()).
     Additionaly you can specify the update interval (in milliseconds, can be changed using setUpdateInterval()). */
-NTPClient           timeClient(ntpUDP, NTP_SERVER, NTP_TIME_OFFSET_SEC, NTP_UPDATE_INTERVAL_MS);
-HTTPClient          httpClient;    //Declare object of class HTTPClient
-DHTesp              dhtMain;
-WiFiClient          wifi_client;
 
-float               temp_sum_value_prev = 0;
-float               temp_min_value_prev = 0;
-float               temp_max_value_prev = 0;
-float               hydro_value_prev = -1;
-float               humidity_value_prev = 0;
-float               humidity_value = 0;
-bool                light_enabled = false;
-bool                reset_info_posted = false;
+float                           current_temp[NUMBER_OF_SENSORS];
+float                           temp_sum_value_prev = 0;
+float                           temp_min_value_prev = 0;
+float                           temp_max_value_prev = 0;
+float                           hydro_value_prev = -1;
+float                           humidity_value_prev = 0;
+float                           humidity_value = 0;
+bool                            light_enabled = false;
+bool                            reset_info_posted = false;
 volatile unsigned long          boot_time = 0;
 volatile unsigned long          uptime = 0;
 volatile bool                   update_time_flag   = false;
@@ -190,34 +187,34 @@ volatile bool                   firmwareUpdateFlag = false;
 void setup(void)
 {
   pinMode(LIGHT_SENSOR_D0, INPUT);
-  Serial.begin(UART_BAUD_RATE);
   sensor.begin();
+  Serial.begin(UART_BAUD_RATE);
   if (CHECK_INTERNET_CONNECT) {
     internet_access = 0;
   } else {
     internet_access = 1;
   }
-
   Serial.println("");
-  message("Serial communication started.", PASS);
-  print_reset_info();   ////////////////////////////////////////////////
-
   wifi_connect();
-
+  message("Serial communication started.", PASS);
+  print_reset_info();
   message("Starting SPIFFS....", INFO);
-  SPIFFS.begin(true);
+  if (!SPIFFS.begin()) {
+    message("Failed to init SPIFFS ", CRITICAL);
+    message("Format SPIFFS ", CRITICAL);
+    SPIFFS.format();
+    message("Starting SPIFFS....", INFO);
+    SPIFFS.begin();
+  }
   message("SPIFFS startted.", PASS);
-  //message("Compile SPIFFS", INFO);
-  //  SPIFFS.format();
-
-  //  server_start();
   timeClient.begin();
-  start_thermal();
-  //timeClient.update();
-  delay(1000);
-  timeClient.forceUpdate();
   delay(1000);
   dhtMain = startSensor(dhtMain, DHT_HUMIDITY_PIN);
+  start_thermal();
+  //timeClient.update();
+
+  timeClient.forceUpdate();
+  delay(1000);
   message(" ----> All started <----", PASS);
   delay(1000);
   wifi_check();
@@ -280,6 +277,7 @@ void loop(void)
   if (internet_access && (boot_time == 0 || boot_time < INCORRECT_EPOCH)) {
     boot_time = timeClient.getEpochTime();
     message("Boot time updated...", DEBUG);
+    delay(999);
   }
 
 #ifdef ESP8266
@@ -288,6 +286,13 @@ void loop(void)
 #endif
 
   wifi_check();
+
+  if (counter % NTP_UPDATE_COUNTER == 0 || counter == -50) {
+    if (internet_access) {
+      message("Starting update the time...", DEBUG);
+      update_time();
+    }
+  }
 
   check_light(false);
   if (counter % CHECK_HUMIDITY_COUNTER == 0) {
@@ -342,12 +347,7 @@ void loop(void)
     print_all_info();
   }
 
-  if (counter % NTP_UPDATE_COUNTER == 0) {
-    if (internet_access) {
-      message("Starting update the time...", DEBUG);
-      update_time();
-    }
-  }
+
   check_light(false);
   delay(LOOP_DELAY / 3);
   check_light(false);
@@ -637,7 +637,7 @@ String read_cmd(const String &postData)
     String int_url = String(GROWBOOK_URL) + url;
     message(int_url + " : \t" + String("postData:") + postData, DEBUG); // Print HTTP return code
     httpClient.begin(wifi_client, int_url);
-    httpClient.setTimeout(3200);
+    httpClient.setTimeout(5000);
     httpClient.addHeader("Content-Type", "application/x-www-form-urlencoded");  //Specify content-type header
 #ifdef ESP8266
     ESP.wdtFeed();
@@ -676,7 +676,7 @@ const bool postTo(const String &url, const String &postData)
   if ((CHECK_INTERNET_CONNECT && internet_access) || !CHECK_INTERNET_CONNECT) {
     String int_url = String(GROWBOOK_URL) + url;
     httpClient.begin(wifi_client, int_url);
-    httpClient.setTimeout(2000);
+    httpClient.setTimeout(5000);
     httpClient.addHeader("Content-Type", "application/x-www-form-urlencoded");  //Specify content-type header
     message(int_url + " : \t" + String("postData:") + postData, DEBUG); // Print HTTP return code
 #ifdef ESP8266
@@ -1051,7 +1051,10 @@ void update_time()
       timeClient.forceUpdate();
       timeClient.update();
       if (timeClient.getEpochTime() < INCORRECT_EPOCH) {
-        delay(1000 + 1000 * counter_tmp);
+        delay(3000);
+#ifdef ESP8266
+        ESP.wdtFeed();
+#endif
         yield();
       } else {
         break;
