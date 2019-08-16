@@ -18,20 +18,26 @@
 #include <NTPClient.h>
 #include <Wire.h>
 
+
 #ifdef ESP32
+
 #include <WiFi.h>
 #include <ESP32Ping.h>
 //#include <WebServer.h>
 #include <ESPmDNS.h>
 #include "ESP32httpUpdate.h"
 #include <HTTPClient.h>
+
 #else
+
 #include <ESP8266WiFi.h>
+#include <ESP8266WiFiSTA.h>
 #include <ESP8266Ping.h>
 //#include <ESP8266WebServer.h>
 #include <ESP8266mDNS.h>
 #include "ESP8266httpUpdate.h"
 #include <ESP8266HTTPClient.h>
+
 #endif
 
 
@@ -65,18 +71,23 @@
 #define   LOW_TEMPERATURE                   -55
 /*******************************************************************************************************/
 // Thermometer, hydrometer, humidity light sensor and wire settings
+
 #ifdef ESP32
+
 #define   HYDROMETER_PIN                    A0
 #define   LIGHT_SENSOR_D0                   16
 #define   HYDROMETER_D0_PIN                 5
-#define   ONE_WIRE_BUS                      2                      // D4 2
+#define   ONE_WIRE_BUS                      16                      // D4 2
 #define   DHT_HUMIDITY_PIN                  14                      // 14 D5 of NodeMCU is GPIO14
+
 #else
+
 #define   HYDROMETER_PIN                    A0
 #define   LIGHT_SENSOR_D0                   D0
 #define   HYDROMETER_D0_PIN                 D1
 #define   ONE_WIRE_BUS                      D2                      // D4 2
 #define   DHT_HUMIDITY_PIN                  D5                      // 14 D5 of NodeMCU is GPIO14
+
 #endif
 
 
@@ -125,69 +136,7 @@
 // INTERRUPT
 #define INTERRUPT_TIME                      120000000                //  600000      //12us
 /*******************************************************************************************************/
-enum LogType {
-  INFO      = 0,
-  WARNING   = 1,
-  ERROR     = 2,
-  PASS      = 3,
-  FAIL_t    = 4,
-  CRITICAL  = 5,
-  DEBUG     = 6,
-} ;
-
-enum SensorType {
-  HUMIDITY = 0,
-  TEMPERATURE = 1,
-  HYDROMETER = 2,
-  LIGHT = 3,
-};
-
-
-struct bootflags
-{
-  unsigned char raw_rst_cause : 4;
-  unsigned char raw_bootdevice : 4;
-  unsigned char raw_bootmode : 4;
-  unsigned char rst_normal_boot : 1;
-  unsigned char rst_reset_pin : 1;
-  unsigned char rst_watchdog : 1;
-  unsigned char bootdevice_ram : 1;
-  unsigned char bootdevice_flash : 1;
-};
-
-struct bootflags bootmode_detect(void) {
-  int reset_reason = 0, bootmode = 0;
-  asm (
-    "movi %0, 0x60000600\n\t"
-    "movi %1, 0x60000200\n\t"
-    "l32i %0, %0, 0x114\n\t"
-    "l32i %1, %1, 0x118\n\t"
-    : "+r" (reset_reason), "+r" (bootmode) /* Outputs */
-    : /* Inputs (none) */
-    : "memory" /* Clobbered */
-  );
-
-  struct bootflags flags;
-  flags.raw_rst_cause = (reset_reason & 0xF);
-  flags.raw_bootdevice = ((bootmode >> 0x10) & 0x7);
-  flags.raw_bootmode = ((bootmode >> 0x1D) & 0x7);
-  flags.rst_normal_boot = flags.raw_rst_cause == 0x1;
-  flags.rst_reset_pin = flags.raw_rst_cause == 0x2;
-  flags.rst_watchdog = flags.raw_rst_cause == 0x4;
-  flags.bootdevice_ram = flags.raw_bootdevice == 0x1;
-  flags.bootdevice_flash = flags.raw_bootdevice == 0x3;
-
-  return flags;
-}
-
-/*******************************************************************************************************/
-
-String              TypeNames[4] = {
-  "App%5CEntity%5CEvents%5CEventHumidity",
-  "App%5CEntity%5CEvents%5CEventTemperature",
-  "App%5CEntity%5CEvents%5CEventSoilHydrometer",
-  "App%5CEntity%5CEvents%5CEventLight"
-};
+#include "structs.h"
 const char          *ssid                     = WIFI_SSID;
 const char          *password                 = WIFI_PASS;
 int                 counter                   = 0;
@@ -198,13 +147,17 @@ String              sensorsSingleLog          = "";
 /**
  ****************************************************************************************************
 */
+#ifdef ESP32
+
+hw_timer_t * timer = NULL;
+//WebServer    server(80);
+#else
+
+//ESP8266WebServer    server(80);
+#endif
+
 OneWire             oneWire(ONE_WIRE_BUS);
 DallasTemperature   sensor(&oneWire);
-//#ifdef ESP32
-//WebServer    server(80);
-//#else
-//ESP8266WebServer    server(80);
-//#endif
 DeviceAddress       insideThermometer[NUMBER_OF_SENSORS];       // arrays to hold device address
 WiFiUDP             ntpUDP;
 IPAddress           pingServer (8, 8, 8, 8);    // Ping server
@@ -215,6 +168,8 @@ float               current_temp[NUMBER_OF_SENSORS];
 NTPClient           timeClient(ntpUDP, NTP_SERVER, NTP_TIME_OFFSET_SEC, NTP_UPDATE_INTERVAL_MS);
 HTTPClient          httpClient;    //Declare object of class HTTPClient
 DHTesp              dhtMain;
+WiFiClient          wifi_client;
+
 float               temp_sum_value_prev = 0;
 float               temp_min_value_prev = 0;
 float               temp_max_value_prev = 0;
@@ -223,79 +178,38 @@ float               humidity_value_prev = 0;
 float               humidity_value = 0;
 bool                light_enabled = false;
 bool                reset_info_posted = false;
-volatile unsigned long       boot_time = 0;
-volatile unsigned long       uptime = 0;
-WiFiClient          wifi_client;
-volatile bool       update_time_flag   = false;
-volatile bool       firmwareUpdateFlag = false;
-//volatile unsigned int        interruptCounter = 0;
+volatile unsigned long          boot_time = 0;
+volatile unsigned long          uptime = 0;
+volatile bool                   update_time_flag   = false;
+volatile bool                   firmwareUpdateFlag = false;
 /*******************************************************************************************************/
 
-//ADC_MODE(ADC_VCC);              // This disable ADC read!
-const float getTemperature(const int &dev = 0);
-/**
- ****************************************************************************************************
- ****************************************************************************************************
-*/
+#include "functions.h"
+#include "interrupts.h"
 
-
-//=======================================================================
-#ifdef ESP32
-hw_timer_t * timer = NULL;
-
-void IRAM_ATTR onTimer()
+void setup(void)
 {
-  // Update uptime if boot time found and not process update_time
-  if (boot_time > 0 || !update_time_flag) {
-    if (internet_access) {
-      uptime = timeClient.getEpochTime() - boot_time;
-    }
-  }
-}
-
-#else
-void ICACHE_RAM_ATTR onTimerISR()
-{
-  // Update uptime if boot time found and not process update_time
-  if (boot_time > 0 || !update_time_flag) {
-    if (internet_access) {
-      uptime = timeClient.getEpochTime() - boot_time;
-    }
-  }
-  // We cannot run timer if there is firmware update process
-  if (!firmwareUpdateFlag) {
-    timer1_write(INTERRUPT_TIME);//12us
-  }
-}
-#endif
-
-
-/**
-  Setup the controller
-*/
-void setup(void) {
-  //pinMode(LIGHT_SENSOR_PIN, INPUT);
   pinMode(LIGHT_SENSOR_D0, INPUT);
+  Serial.begin(UART_BAUD_RATE);
+  sensor.begin();
   if (CHECK_INTERNET_CONNECT) {
     internet_access = 0;
-  }
-  else {
+  } else {
     internet_access = 1;
   }
-  //disableLoad();
-  sensor.begin();
-  Serial.begin(UART_BAUD_RATE);
+
   Serial.println("");
   message("Serial communication started.", PASS);
   print_reset_info();   ////////////////////////////////////////////////
+
+  wifi_connect();
+
   message("Starting SPIFFS....", INFO);
-  SPIFFS.begin();
+  SPIFFS.begin(true);
   message("SPIFFS startted.", PASS);
   //message("Compile SPIFFS", INFO);
   //  SPIFFS.format();
 
-  //Serial.println(build_index());
-  wifi_connect();
   //  server_start();
   timeClient.begin();
   start_thermal();
@@ -308,12 +222,16 @@ void setup(void) {
   delay(1000);
   wifi_check();
   print_all_info();
+
 #ifdef ESP8266
+
   ESP.wdtEnable(10000);
   ESP.wdtDisable();
 #endif
+
   delay(1000);
   check_connectivity(true);
+
   while (counter < 100) {
     if ((CHECK_INTERNET_CONNECT && internet_access) || !CHECK_INTERNET_CONNECT) {
       message(" ----> internet_access is OK<----", PASS);
@@ -321,8 +239,10 @@ void setup(void) {
     }
 
 #ifdef ESP8266
+
     ESP.wdtFeed();
 #endif
+
     delay(100);
     counter += 1;
     if (counter == 50) {
@@ -330,27 +250,23 @@ void setup(void) {
     }
     message("internet_access: " + String(internet_access) + " CHECK_INTERNET_CONNECT:" + String(CHECK_INTERNET_CONNECT), PASS);
   }
-  counter = 0;
+
+  counter = -100;
   update_time();
-  message(" ----> Start Loop <----", PASS);
+
 #ifdef ESP32
+
   timer = timerBegin(0, 80, true);
-
-  // Attach onTimer function to our timer.
-  timerAttachInterrupt(timer, &onTimer, true);
-
-  // Set alarm to call onTimer function every second (value in microseconds).
-  // Repeat the alarm (third parameter)
-  timerAlarmWrite(timer, 1000000, true);
-
-  // Start an alarm
-  timerAlarmEnable(timer);
+  timerAttachInterrupt(timer, &onTimer, true);// Attach onTimer function to our timer.
+  timerAlarmWrite(timer, 1000000, true);      // Set alarm to call onTimer function every second (value in microseconds).Repeat the alarm (third parameter)
+  timerAlarmEnable(timer);                    // Start an alarm
 #else
+
   timer1_attachInterrupt(onTimerISR);
   timer1_enable(TIM_DIV16, TIM_EDGE, TIM_SINGLE);
   timer1_write(INTERRUPT_TIME); //120000 us
 #endif
-
+  message(" ----> Start Loop <----", PASS);
 }
 
 
@@ -359,32 +275,34 @@ void setup(void) {
   ////////////////////////////////////////////////////////////////////////////
 */
 
-void loop(void) {
-  // WEB SERVER
+void loop(void)
+{
   if (internet_access && (boot_time == 0 || boot_time < INCORRECT_EPOCH)) {
     boot_time = timeClient.getEpochTime();
     message("Boot time updated...", DEBUG);
   }
 
-  //  server.handleClient();
 #ifdef ESP8266
+
   ESP.wdtFeed();
 #endif
+
   wifi_check();
 
   check_light(false);
   if (counter % CHECK_HUMIDITY_COUNTER == 0) {
     read_dht(dhtMain);
-
   }
-  // SENSORS  ---------------------------------------------------------------------------------------
+
   if (counter % 600 == 0) {
     read_cmd_flow();
   }
+
   if (counter % CHECK_SENSORS_1 == 0) {
     sonsors_dallas();
     check_light(false);
   }
+
   //  if (counter % CHECK_SENSORS_2 == 0) {
   //    check_light(false);
   //  }
@@ -411,9 +329,12 @@ void loop(void) {
 
   if (counter % CALL_SERVER_COUNTER == 0 && internet_access) {
     growBookPostValues();
+
 #ifdef ESP8266
+
     ESP.wdtFeed();
 #endif
+
   }
 
   check_connectivity(false);
@@ -440,6 +361,7 @@ void loop(void) {
   //uptime = timeClient.getEpochTime() - boot_time;
 }
 
+//-------------------------------------------------------------------------------------------------------------------//
 /**
 
 */
@@ -509,23 +431,9 @@ void update_firmware(const String &value)
   delay(500);
 }
 
-String getValue(const String &data, const char &separator, const int &index)
+
+const bool sensors_hydrometer()
 {
-  int found = 0;
-  int strIndex[] = { 0, -1 };
-  int maxIndex = data.length() - 1;
-
-  for (int i = 0; i <= maxIndex && found <= index; i++) {
-    if (data.charAt(i) == separator || i == maxIndex) {
-      found++;
-      strIndex[0] = strIndex[1] + 1;
-      strIndex[1] = (i == maxIndex) ? i + 1 : i;
-    }
-  }
-  return found > index ? data.substring(strIndex[0], strIndex[1]) : "";
-}
-
-const bool sensors_hydrometer() {
   float hydro_value = analogRead(HYDROMETER_PIN);
   float hydro_value_src = hydro_value;
   hydro_value = map(hydro_value, 0, 1024, 1000, 0) / 10.0;
@@ -577,11 +485,10 @@ const bool check_light(const bool &verbose)
 /**
 
 */
-const bool sensors_light() {
+const bool sensors_light()
+{
 
   check_light(true);
-  //sensorsSingleLog += " LIGHT IS " + String(light_enabled) + " ";
-  //if (change_found) {
   String serail = "LDR_" + getNodeName() + String("_" + String(LIGHT_SENSOR_D0));
   growBookPostValue("light", String(light_enabled));
   //growBookPostEvent(String(light_enabled), serail, TypeNames[LIGHT], "", "", "");
@@ -600,7 +507,7 @@ const bool sonsors_dallas()
     float prevTmp = current_temp[i];
     float tmp_1 = 0;
     float tmp_2 = 1;
-    current_temp[i] = getTemperature(i);
+    current_temp[i] = getTemperature(sensor, i);
     if (prevTmp != current_temp[i]) {
       short int _c = 0;
       while (tmp_1 != tmp_2 && _c < 10) {
@@ -609,8 +516,8 @@ const bool sonsors_dallas()
 #ifdef ESP8266
         ESP.wdtFeed();
 #endif
-        tmp_1 = getTemperature(i);
-        tmp_2 = getTemperature(i);
+        tmp_1 = getTemperature(sensor, i);
+        tmp_2 = getTemperature(sensor, i);
         if (tmp_1 > HIGH_TEMPERATURE && tmp_1 == tmp_2) {
           message("High temperature found, recheck. Current" + String(tmp_1) + " Threshhold[HIGH_TEMPERATURE]: " + String(HIGH_TEMPERATURE), CRITICAL);
           tmp_1 = 0;
@@ -650,7 +557,8 @@ const bool sonsors_dallas()
   return true;
 }
 
-TempAndHumidity read_dht(DHTesp &dhtSensor) {
+TempAndHumidity read_dht(DHTesp &dhtSensor)
+{
   TempAndHumidity ret = dhtSensor.getTempAndHumidity();
   humidity_value = ret.humidity;
   return ret;
@@ -659,22 +567,25 @@ TempAndHumidity read_dht(DHTesp &dhtSensor) {
 /**
     Humidity sensor
 */
-const bool sonsors_dht() {
+const bool sonsors_dht()
+{
   return sonsor_dht(dhtMain);
 }
 
-const bool sonsor_dht(DHTesp &dhtSensor) {
+const bool sonsor_dht(DHTesp &dhtSensor)
+{
   TempAndHumidity ret = read_dht(dhtSensor);
   delay(20);
   float heat_index = dhtSensor.computeHeatIndex(ret.temperature, ret.humidity, false);
   //float dewPoint = dhtSensor.computeDewPoint(ret.temperature, ret.humidity, false);
   float absoluteHumidity = dhtSensor.computeAbsoluteHumidity(ret.temperature, ret.humidity, false);
-  String model = String("DHT") + String(dhtSensor.getModel()) + String(dhtSensor.getModel());
-  String serial_num = model + "_-_" + getNodeName() + String("_-_") + String(dhtSensor.getPin());
+  String serial_num = dhtSerialNumber(dhtSensor);
   if (String(heat_index) != "nan") {
     growBookPostEvent(String(ret.humidity), serial_num, TypeNames[HUMIDITY], String(absoluteHumidity), String(ret.temperature), String(heat_index));
   } else {
-    growBookPostValue("BAD_HUMIDITY_VALUE_" + serial_num, String(ret.humidity) + ":" + String(absoluteHumidity) + ":" + String(ret.temperature) + ":" + String(heat_index) + ":Status:" + dhtSensor.getStatusString());
+    if (String(dhtSensor.getStatusString()) != "TIMEOUT") {
+      growBookPostValue("BAD_HUMIDITY_VALUE_" + serial_num, String(ret.humidity) + ":" + String(absoluteHumidity) + ":" + String(ret.temperature) + ":" + String(heat_index) + ":Status:" + dhtSensor.getStatusString());
+    }
   }
 
   //  if (humidity < 10 || (humidity > 90 && humidity <= 100)) {
@@ -685,11 +596,17 @@ const bool sonsor_dht(DHTesp &dhtSensor) {
   return true;
 }
 
-void growBookPostEvent(const String &value, const String &sensor, const String &type, const String &value1, const String &value2, const String &value3) {
+void growBookPostEvent(const String &value, const String &sensor, const String &type, const String &value1, const String &value2, const String &value3)
+{
   String note = "";
   String url = "event/new?type=" + String(type);
   String postData;
-  postData = String("rssi=") + urlencode(String(WiFi.RSSI())) + "&uptime=" + urlencode(String(uptime)) + "&value=" + urlencode(value) + "&sensor_id=" + urlencode(sensor) + "&note=" + urlencode(note) + "&plant_id=" + urlencode(getNodeName());
+  postData = String("rssi=") + urlencode(String(WiFi.RSSI())) +
+             "&uptime=" + urlencode(String(uptime)) +
+             "&value=" + urlencode(value) +
+             "&sensor_id=" + urlencode(sensor) +
+             "&note=" + urlencode(note) +
+             "&plant_id=" + urlencode(getNodeName());
   if ( value1 != "" ) {
     postData += "&value1=" + urlencode(value1);
   }
@@ -711,7 +628,9 @@ void growBookPostValue(const String &key, const String &value)
   postTo("plant/cli/" + urlencode(getNodeName()), String("key=") + urlencode(key) + "&value=" + urlencode(value));
 }
 
-String read_cmd(const String &postData) {
+
+String read_cmd(const String &postData)
+{
   String ret = "";
   if ((CHECK_INTERNET_CONNECT && internet_access) || !CHECK_INTERNET_CONNECT) {
     String url = "plant/read_cmd/" + urlencode(getNodeName());
@@ -751,7 +670,8 @@ String read_cmd(const String &postData) {
   return ret;
 }
 
-const bool postTo(const String &url, const String &postData) {
+const bool postTo(const String &url, const String &postData)
+{
   bool ret = false;
   if ((CHECK_INTERNET_CONNECT && internet_access) || !CHECK_INTERNET_CONNECT) {
     String int_url = String(GROWBOOK_URL) + url;
@@ -790,7 +710,7 @@ const bool postTo(const String &url, const String &postData) {
 const String getNodeName()
 {
 #ifdef ESP32
-  return WiFi.getHostname();
+  return String(WiFi.getHostname()) + "_" + String(WiFi.macAddress());
 #else
   return WiFi.hostname();
 #endif
@@ -847,7 +767,12 @@ void growBookPostValues() {
 
 #endif
 
-  postData += "&wifi_channel=" + urlencode(String(WiFi.channel())) + "&" + urlencode("rssi") + "=" + urlencode(String(WiFi.RSSI()));
+  postData += "&counter=" + urlencode(String(counter));
+  postData += "&nodeName=" + urlencode(getNodeName());
+  postData += "&SSID=" + urlencode(String(WiFi.SSID()));
+  postData += "&BSSID=" + urlencode(String(WiFi.BSSIDstr()));
+  postData += "&MAC_ADDRESS=" + urlencode(String(WiFi.macAddress()));
+  postData += "&wifi_channel=" + urlencode(String(WiFi.channel())) + "&rssi=" + urlencode(String(WiFi.RSSI()));
   postData += "&flash_chip_mode=" + urlencode(String(ESP.getFlashChipMode()));
   postData += "&cpu_freq=" + urlencode(String(ESP.getCpuFreqMHz())) + "&" + urlencode("sdk_version") + "=" + urlencode(String(ESP.getSdkVersion()));
 
@@ -859,27 +784,41 @@ void growBookPostValues() {
 
 }
 
+const String dhtSerialNumber(DHTesp &dhtSensor)
+{
+  return String("DHT") + String(dhtSensor.getModel()) + String(dhtSensor.getModel()) + "_-_" + getNodeName() + String("_-_") + String(dhtSensor.getPin());
+}
 
 DHTesp startSensor(DHTesp &dhtSensor, const unsigned int pin)
 {
+  message(" - - - - Starting DHT detection - - - - ");
+
   message("DHT start DHT22 mode...");
   dhtSensor.setup(pin, DHTesp::DHT22);   //
-  delay(1000);
+  delay(2000);
   TempAndHumidity _t = read_dht(dhtSensor);
   message("_t value.humidity " + String(_t.humidity));
   if (_t.humidity == NAN || String(_t.humidity) == "nan" || _t.humidity < 5) {
-    message("DHT [DHTesp::DHT22] failed. Seting [AUTO_DETECT]. Value " + String(_t.humidity));
-    delay(1000);
+    message("DHT [DHTesp::DHT22] failed. Value=" + String(_t.humidity));
+    message("Setting [AUTO_DETECT]");
     dhtSensor.setup(pin, DHTesp::AUTO_DETECT);
+    delay(2000);
     _t = read_dht(dhtSensor);
     if (_t.humidity == NAN || String(_t.humidity) == "nan" ) {
-      message("DHT22 [DHTesp::DHT22] detect failed. Seting [DHTesp::DHT11]. Value " + String(_t.humidity));
+      message("DHT22 [DHTesp::DHT22] detect failed. Value:" + String(_t.humidity));
+      message("Setting [DHTesp::DHT11]");
       dhtSensor.setup(pin, DHTesp::DHT11);
       delay(2000);
       _t = read_dht(dhtSensor);
       if (_t.humidity == NAN || String(_t.humidity) == "nan" ) {
-        message("DHT11 [DHTesp::DHT11] detect failed. Seting [AUTO_DETECT]. Value " + String(_t.humidity));
+        message("DHT11 [DHTesp::DHT11] detect failed. Value:" + String(_t.humidity));
+        message("Setting [AUTO_DETECT]");
         dhtSensor.setup(pin, DHTesp::AUTO_DETECT);
+        delay(2000);
+        if (dhtSensor.getStatus() != 0) {
+          message("DHT not defined", CRITICAL);
+          dhtSensor.setup(-1, DHTesp::AUTO_DETECT);
+        }
       } else {
         message("DHT11 success.", PASS);
       }
@@ -889,8 +828,7 @@ DHTesp startSensor(DHTesp &dhtSensor, const unsigned int pin)
   } else {
     message("DHT AUTO_DETECT success.", PASS);
   }
-  String dht_model = "DHT" + String(dhtSensor.getModel()) + String(dhtSensor.getModel());
-  message("DHT MODEL :" + dht_model, INFO);
+  message("DHT MODEL :" + dhtSerialNumber(dhtSensor), INFO);
   return dhtSensor;
 }
 
@@ -905,7 +843,7 @@ const bool check_connectivity(const bool &force)
       bool _ia = internet_access;
       internet_access = Ping.ping(pingServer, 2);
       if (!_ia) {
-        message("Ping result is " + String(internet_access) + " avg_time_ms:" + String(Ping.averageTime()), INFO);
+        message("Ping result is " + String(internet_access) + " avg_time_ms:" + String(Ping.averageTime()) + " Failures:" + String(internet_access_failures), INFO);
       }
 
       if (!internet_access) {
@@ -952,7 +890,8 @@ void wifi_check()
 /**
    Reconnect to wifi - in success enable all services and update time
 */
-void reconnect_cnv() {
+void reconnect_cnv()
+{
   internet_access = 0;
   update_time_flag = true;
   delay(500);
@@ -976,7 +915,8 @@ void reconnect_cnv() {
 /**
    Set WiFi connection and connect
 */
-const bool wifi_connect() {
+const bool wifi_connect()
+{
   WiFi.mode(WIFI_STA);       //  Disable AP Mode - set mode to WIFI_AP, WIFI_STA, or WIFI_AP_STA.
   WiFi.begin(ssid, password);
 
@@ -1014,23 +954,16 @@ const bool wifi_connect() {
   return true;
 }
 
-/**
-  Keep type of mesages
-*/
-//static inline char *stringFromLogType(enum LogType lt)
-static const char *stringFromLogType(const enum LogType &lt) {
-  static const char *strings[] = {"INFO", "WARN", "ERROR", "PASS", "FAIL", "CRITICAL", "DEBUG"};
-  return strings[lt];
-}
-
-void message(const String msg) {
+void message(const String msg)
+{
   message(msg, DEBUG);
 }
 
 /**
    Print message to Serial console
 */
-void message(const String &msg, const enum LogType &lt) {
+void message(const String &msg, const enum LogType &lt)
+{
   if (MESSAGE_OPT) {
     if (msg.length() == 0) {
       Serial.println(msg);
@@ -1043,36 +976,16 @@ void message(const String &msg, const enum LogType &lt) {
         f_time = String(timeClient.getFormattedTime());
       }
       update_time_flag = false;
-      Serial.println(String(uptime) + ":" + epoch + " : " + f_time + " : " + String(stringFromLogType(lt)) + " : " + msg);
+      Serial.println(String(counter) + ":" + String(uptime) + ":" + epoch + " : " + f_time + " : " + String(stringFromLogType(lt)) + " : " + msg);
     }
   }
 }
 
-
-///**
-//   Start WEB server
-//*/
-//void server_start() {
-//  server.on("/", handleRoot);
-//  server.on("/inline", []() {
-//    server.send(200, "text/plain", "this works as well");
-//  });
-//  //  server.on("/el", []() {
-//  //    enableLoad();
-//  //    loadMode = MANUAL;
-//  //    handleRoot();
-//  //  });
-//  server.onNotFound(handleNotFound);
-//  message("Staring HTTP server...", INFO);
-//  server.begin();
-//  message("HTTP server started", PASS);
-//}
-
-
 /**
   Close all network services
 */
-void close_all_services() {
+void close_all_services()
+{
   message(" ----> Starting close all network services <----", INFO);
 
   message(" ----> Closing NTP Client...", INFO);
@@ -1105,67 +1018,28 @@ void close_all_services() {
 /**
 
 */
-void start_thermal() {
+void start_thermal()
+{
+  message(" - - - Start thermal - - - ", INFO);
   message("Found " + String(sensor.getDeviceCount()) + " Thermometer Dallas devices.", INFO);
   message("Parasite power is: " + String(sensor.isParasitePowerMode()), INFO);
-  short int counter = 0;
-  for (counter = 0; counter < sensor.getDeviceCount(); counter++) {
-    if (!sensor.getAddress(insideThermometer[counter], counter)) {
-      message("Unable to find address for Device " + String(counter) , CRITICAL);
-    }
-    else {
+  short int t_counter = 0;
+  for (t_counter = 0; t_counter < sensor.getDeviceCount(); t_counter++) {
+    if (!sensor.getAddress(insideThermometer[t_counter], t_counter)) {
+      message("Unable to find address for Device " + String(t_counter) , CRITICAL);
+    } else {
       // set the resolution to 9 bit (Each Dallas/Maxim device is capable of several different resolutions)
-      sensor.setResolution(insideThermometer[counter], TEMPERATURE_PRECISION);
-      message("Device " + String(counter) + " [" + getAddressString(insideThermometer[counter]) + "] Resolution: " + String(sensor.getResolution(insideThermometer[counter])) , INFO);
+      sensor.setResolution(insideThermometer[t_counter], TEMPERATURE_PRECISION);
+      message("Device " + String(t_counter) + " [" + getAddressString(insideThermometer[t_counter]) + "] Resolution: " + String(sensor.getResolution(insideThermometer[t_counter])) , INFO);
     }
   }
-
 }
-
-///**
-//*/
-//String build_index() {
-//
-//  String ret_js = String("") + "load = \n{" +
-//                  "'internet_access': '" + String(internet_access) + "'," +
-//                  "'current_temperature_0': '" + String(current_temp[0]) + "'," +
-//                  "'current_temperature_1': '" + String(current_temp[1]) + "'," +
-//                  "'current_temperature_2': '" + String(current_temp[2]) + "'," +
-//                  "'current_temperature_3': '" + String(current_temp[3]) + "'," +
-//                  "'flash_chip_id': '" + String(ESP.getFlashChipId()) + "'," +
-//                  "'flash_chip_size': '" + String(ESP.getFlashChipSize()) + "'," +
-//                  "'flash_chip_speed': '" + String(ESP.getFlashChipSpeed()) + "'," +
-//                  "'flash_chip_mode': '" + String(ESP.getFlashChipMode()) + "'," +
-//                  "'core_version': '" + ESP.getCoreVersion() + "'," +
-//                  "'sdk_version': '" + String(ESP.getSdkVersion()) + "'," +
-//                  "'boot_version': '" + ESP.getBootVersion() + "'," +
-//                  "'boot_mode': '" + String(ESP.getBootMode()) + "'," +
-//                  "'cpu_freq': '" + String(ESP.getCpuFreqMHz()) + "'," +
-//                  "'mac_addr': '" + WiFi.macAddress() + "'," +
-//                  "'wifi_channel': '" + String(WiFi.channel()) + "'," +
-//                  "'rssi': '" + WiFi.RSSI() + "'," +
-//                  "'sketch_size': '" + String(ESP.getSketchSize()) + "'," +
-//                  "'free_sketch_size': '" + String(ESP.getFreeSketchSpace()) + "'," +
-//                  "'temperature_precision': '" + String(TEMPERATURE_PRECISION) + "'," +
-//                  "'time_str': '" + timeClient.getFormattedTime() + "'," +
-//                  "'time_epoch': '" + timeClient.getEpochTime() + "'," +
-//                  "'hostname': '" + WiFi.hostname() + "'" +
-//                  "};\n";
-//  String ret = String("") + "<!DOCTYPE html><html lang='en'><head><meta charset='UTF-8'><title>Load Info</title></head>" +
-//               " <script src='https://ajax.googleapis.com/ajax/libs/jquery/3.2.0/jquery.min.js'></script>\n" +
-//               " <script src='http://tm.anshamis.com/js/heater.js'></script>\n" +
-//               " <link rel='stylesheet' type='text/css' href='http://tm.anshamis.com/css/heater.css'>\n" +
-//               "<body><script>" + ret_js + "</script>\n" +
-//               "<div id='content'></div>" +
-//               "<script>\n " +               "$(document).ready(function(){ onLoadPageLoad(); });</script>\n" +
-//               "</body></html>";
-//  return ret;
-//}
 
 /**
    Update time by NTP client
 */
-void update_time() {
+void update_time()
+{
   noInterrupts();
   update_time_flag = true;
   if (timeClient.getEpochTime() < INCORRECT_EPOCH) {
@@ -1177,15 +1051,13 @@ void update_time() {
       timeClient.forceUpdate();
       timeClient.update();
       if (timeClient.getEpochTime() < INCORRECT_EPOCH) {
-        delay(1000 + 500 * counter_tmp);
+        delay(1000 + 1000 * counter_tmp);
         yield();
-      }
-      else {
+      } else {
         break;
       }
     }
-  }
-  else {
+  } else {
     timeClient.forceUpdate();
     timeClient.update();
   }
@@ -1193,106 +1065,6 @@ void update_time() {
   update_time_flag = false;
   message("Time updated." , PASS);
 }
-
-/**
-   Get Temperature
-*/
-const float getTemperature(const int &dev/*=0*/) {
-  //message("Requesting device " + String(dev), DEBUG);
-  sensor.setWaitForConversion(false);   // makes it async
-  sensor.requestTemperatures();
-  sensor.setWaitForConversion(true);    // makes it async
-  return sensor.getTempCByIndex(dev);
-  //return sensor.getTempC(insideThermometer[dev]);
-}
-
-////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////
-//
-///**
-//   Enable Load
-//*/
-//void enableLoad() {
-//  float current_temp_tmp = getTemperature(outsideThermometerIndex);
-//  if (current_temp_tmp > MAX_POSSIBLE_TMP) {
-//    message("Current temperature is bigger of possible maximum. " + String(current_temp_tmp) + ">" + String(MAX_POSSIBLE_TMP), ERROR);
-//  }
-//  else {
-//    secure_disabled = false;
-//    heaterStatus = 1;
-//    digitalWrite(LOAD_VCC, 1);
-//  }
-//}
-
-///**
-//   Disable Load
-//*/
-//void disableLoad() {
-//  heaterStatus = 0;
-//  last_disable_epoch = timeClient.getEpochTime();
-//  digitalWrite(LOAD_VCC, 0);
-//}
-
-////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////
-
-///***
-//  WEB Server function
-//*/
-//void uploadAndSaveOutsideThermometerIndex() {
-//  for (uint8_t i = 0; i < server.args(); i++) {
-//    if (server.argName(i) == "outTmpIndex") {
-//      saveOutsideThermometerIndex(server.arg(i).toInt());
-//      message("saveOutsideThermometerIndex " + String(server.arg(i)), INFO);
-//    }
-//  }
-//}
-
-///***
-//  WEB Server function
-//*/
-//void saveLoadMode() {
-//  for (uint8_t i = 0; i < server.args(); i++) {
-//    if (server.argName(i) == "temperatureKeep") {
-//      temperatureKeep = server.arg(i).toFloat();
-//      loadMode = KEEP;
-//      message("Keep temperature ", INFO);
-//      if (temperatureKeep > MAX_POSSIBLE_TMP) {
-//        temperatureKeep = MAX_POSSIBLE_TMP;
-//        message("Override Keep temperature to MAX_POSSIBLE_TMP " + String(temperatureKeep), INFO);
-//      }
-//    }
-//  }
-//}
-
-///**
-//  WEB Server function
-//*/
-//void handleNotFound() {
-//  String message = "File Not Found\n\n";
-//  message += "URI: " + server.uri() + "\nMethod: ";
-//  message += (server.method() == HTTP_GET) ? "GET" : "POST";
-//  message += "\nArguments: ";
-//  message += server.args() + "\n";
-//  for (uint8_t i = 0; i < server.args(); i++) {
-//    message += " " + server.argName(i) + ": " + server.arg(i) + "\n";
-//  }
-//  server.send(404, "text/plain", message);
-//}
-//
-///**
-//  WEB Server function
-//*/
-//void handleRoot() {
-//
-//  //  for (uint8_t i=0; i<server.args(); i++){
-//  //    message += " " + server.argName(i) + ": " + server.arg(i) + "\n";
-//  //  }
-//  //  message += server.client();
-//  String message = build_index();
-//  server.send(200, "text/html", message);
-//}
-
 
 void print_reset_info()
 {
@@ -1336,126 +1108,33 @@ void print_reset_info()
 ////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////
 
-
-
 /**
-   print temperature to serial
 */
-void printTemperatureToSerial() {
-  int dc = sensor.getDeviceCount();
-  for (int i = 0 ; i < dc; i++) {
-    message("Temperature[" + String(i) + "] C: " + String(getTemperature(i)), INFO);
-    //Serial.println("INFO: Temperature[" + String(i) + "] C: " + String(getTemperature(i)));
-  }
-}
-
-/**
-
-*/
-const String get_thermometers_addr() {
-  String data = "[";
-  int i = 0;
-  int dev_counter = sensor.getDeviceCount();
-  for (i = 0; i < dev_counter; i++) {
-    data = data + String("\"") + String(getAddressString(insideThermometer[i])) + String("\" , ");
-  }
-  data = data + "]";
-  return data;
-}
-
-/**
-  Convert Dallas Address to String
-*/
-const String getAddressString(const DeviceAddress &deviceAddress) {
-  String ret = "";
-  uint8_t i;
-  for (i = 0; i < 8; i++) {
-    if (deviceAddress[i] < 16) {
-      ret += "0";
-    }
-    ret += String(deviceAddress[i], HEX);
-    if (i < 7) {
-      ret += ":";
-    }
-  }
-  return ret;
-}
-
-/**
-
-*/
-String urlencode(const String &s) {
-  static const char lookup[] = "0123456789abcdef";
-  String result;
-  size_t len = s.length();
-
-  for (size_t i = 0; i < len; i++) {
-    const char c = s[i];
-    if (('0' <= c && c <= '9') || ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z') || (c == '-' || c == '_' || c == '.' || c == '~')) {
-      result += c;
-    } else {
-      result += "%" + String(lookup[(c & 0xf0) >> 4]) + String(lookup[c & 0x0f]);
-    }
-  }
-  return result;
-}
-////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////
-
-/**
-  Write to file content on SPIFFS
-*/
-void save_setting(const char* fname, const String &value) {
-  File f = SPIFFS.open(fname, "w");
-  if (!f) {
-    Serial.print("Cannot open file:");
-    Serial.println(fname);
-    return;
-  }
-  f.println(value);
-  Serial.print("Written:");
-  Serial.println(value);
-  f.close();
-}
-
-/**
-  Read file content from SPIFFS
-*/
-String read_setting(const char* fname) {
-  String s      = "";
-  File f = SPIFFS.open(fname , "r");
-  if (!f) {
-    Serial.print("file open failed:");
-    Serial.println(fname);
-  }
-  else {
-    s = f.readStringUntil('\n');
-    f.close();
-  }
-  return s;
-}
-
-/**
- ****************************************************************************************************
-*/
-
-/**
-
-*/
-void print_all_info() {
+void print_all_info()
+{
   message("", DEBUG);
-  message("Version:" + String(VERSION) + "\t internet_access \t:" + String(internet_access), INFO);
-  message("MIN_TEMPERATURE_TH \t:" + String(MIN_TEMPERATURE_TH) + " \t MIN_HUMIDITY_TH \t:" + String(MIN_HUMIDITY_TH), INFO);
+  message("FIRMWARE VERSION:" + String(VERSION) +
+          "\t internet_access:" + String(internet_access) +
+          "\t MIN_TEMPERATURE_TH \t:" + String(MIN_TEMPERATURE_TH) +
+          "\t MIN_HUMIDITY_TH \t:" + String(MIN_HUMIDITY_TH), INFO);
   message("CHECK_INTERNET_CONNECT \t:" + String(CHECK_INTERNET_CONNECT), INFO);
   message("DHTesp_MODEL \t:" + String(dhtMain.getModel()), INFO);
+  message("SdkVersion: " + String(ESP.getSdkVersion()) +
+          "\t HostName:" + getNodeName() +
+          " SSID:" + String(WiFi.SSID()) +
+          " BSSID:" + WiFi.BSSIDstr() + "]" +
+          " WiFiChannel:" + String(WiFi.channel()) + "[RSSI=" + WiFi.RSSI() + " MAC=" + WiFi.macAddress() + "]" +
+          "\t FlashChip(Size/Speed/Mode):" + String(ESP.getFlashChipSize()) + "/" + String(ESP.getFlashChipSpeed()) + "/" + String(ESP.getFlashChipMode()) +
+          " CpuFreqMHz: " + String(ESP.getCpuFreqMHz()) +
+          " SketchSize: " + String(ESP.getSketchSize()) +
+          " FreeSketchSpace: " + String(ESP.getFreeSketchSpace()), INFO);
 #ifdef ESP8266
-  message("HostName: " + getNodeName() + " |Ch: " + String(WiFi.channel()) + " |RSSI: " + WiFi.RSSI() + " |MAC: " + WiFi.macAddress() + " \t Flash Chip Id/Size/Speed/Mode: " + String(ESP.getFlashChipId()) + "/" + String(ESP.getFlashChipSize()) + "/" + String(ESP.getFlashChipSpeed()) + "/" + String(ESP.getFlashChipMode()), INFO);
-  message("SdkVersion: " + String(ESP.getSdkVersion()) + "\tCoreVersion: " + ESP.getCoreVersion() + "\tBootVersion: " + ESP.getBootVersion() + "\t CpuFreqMHz: " + String(ESP.getCpuFreqMHz()) + " \tBootMode: " + String(ESP.getBootMode()) + "\tSketchSize: " + String(ESP.getSketchSize()) + "\tFreeSketchSpace: " + String(ESP.getFreeSketchSpace()), INFO);
-
+  message("ESP8266: BootMode:" + String(ESP.getBootMode())  +
+          "\t BootVersion:" + ESP.getBootVersion() +
+          "\t Flash Chip Id " + String(ESP.getFlashChipId()) +
+          "\t CoreVersion: " + ESP.getCoreVersion(), INFO);
 #endif
 #ifdef ESP32
-  message("HostName: " + getNodeName() + " |Ch: " + String(WiFi.channel()) + " |RSSI: " + WiFi.RSSI() + " |MAC: " + WiFi.macAddress(), INFO);
-  message("SdkVersion: " + String(ESP.getSdkVersion()) + "\t CpuFreqMHz: " + String(ESP.getCpuFreqMHz()) + " \tSketchSize: " + String(ESP.getSketchSize()) + "\tFreeSketchSpace: " + String(ESP.getFreeSketchSpace()), INFO);
+  message("ESP32: SketchMD5: " + String(ESP.getSketchMD5()) + "\t CycleCount: " + String(ESP.getCycleCount()) + "\t ChipRevision:" + String(ESP.getChipRevision()), INFO);
 #endif
-  //message("getResetReason: " + ESP.getResetReason() + " |getResetInfo: " + ESP.getResetInfo() + " |Address : " + getAddressString(insideThermometer[0]), INFO);
 }
