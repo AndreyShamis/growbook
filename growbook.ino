@@ -823,10 +823,10 @@ DHTesp startSensor(DHTesp &dhtSensor, const unsigned int pin)
         message("DHT11 success.", PASS);
       }
     } else {
-      message("DHT22 success.", PASS);
+      message("AUTO_DETECT success.", PASS);
     }
   } else {
-    message("DHT AUTO_DETECT success.", PASS);
+    message("DHT DHT22 success.", PASS);
   }
   message("DHT MODEL :" + dhtSerialNumber(dhtSensor), INFO);
   return dhtSensor;
