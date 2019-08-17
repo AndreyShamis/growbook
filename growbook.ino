@@ -49,7 +49,8 @@
 #include <Ticker.h>
 
 /*******************************************************************************************************/
-#define   VERSION                           0.37
+#define   VERSION                           0.38
+// 0.38 Production release, 2019.08.17_14:15
 // 0.37 Production release, 2019.08.16_15:55  Devide code to files, improve DHT detection
 // 0.36 Production release, 2019.08.15_13:30  Improve stability
 // 0.35 Production release, 2019.08.14_11:45
@@ -67,7 +68,7 @@
 
 // Unchangeable settings
 #define   INCORRECT_EPOCH                   200000                  // Minimum value for time epoch
-#define   HIGH_TEMPERATURE                  125                      // If temperature bigger of this value we recheck it again
+#define   HIGH_TEMPERATURE                  85                      // If temperature bigger of this value we recheck it again
 #define   LOW_TEMPERATURE                   -55
 /*******************************************************************************************************/
 // Thermometer, hydrometer, humidity light sensor and wire settings
@@ -127,8 +128,8 @@
 #define NTP_UPDATE_COUNTER                  (COUNTER_IN_LOOP_SECOND*60*3)
 #define CHECK_INTERNET_CONNECTIVITY_CTR     (COUNTER_IN_LOOP_SECOND*120)
 
-#define GROWBOOK_URL                        "http://192.168.1.206:8082/"
-//#define GROWBOOK_URL                        "http://growbook.anshamis.com/"
+//#define GROWBOOK_URL                        "http://192.168.1.206:8082/"
+#define GROWBOOK_URL                        "http://growbook.anshamis.com/"
 
 
 // INTERRUPT
@@ -519,9 +520,9 @@ const bool sonsors_dallas()
         tmp_1 = getTemperature(sensor, i);
         tmp_2 = getTemperature(sensor, i);
         if (tmp_1 > HIGH_TEMPERATURE && tmp_1 == tmp_2) {
-          message("High temperature found, recheck. Current" + String(tmp_1) + " Threshhold[HIGH_TEMPERATURE]: " + String(HIGH_TEMPERATURE), CRITICAL);
+          message("High temperature found, recheck. Current" + String(tmp_1) + " Threshold[HIGH_TEMPERATURE]: " + String(HIGH_TEMPERATURE), CRITICAL);
           tmp_1 = 0;
-          delay(200);
+          delay(20);
 #ifdef ESP8266
           ESP.wdtFeed();
 #endif
@@ -793,41 +794,49 @@ DHTesp startSensor(DHTesp &dhtSensor, const unsigned int pin)
 {
   message(" - - - - Starting DHT detection - - - - ");
 
-  message("DHT start DHT22 mode...");
-  dhtSensor.setup(pin, DHTesp::DHT22);   //
+  message("DHT start AM2302 mode...");
+  dhtSensor.setup(pin, DHTesp::AM2302);   //
   delay(2000);
   TempAndHumidity _t = read_dht(dhtSensor);
-  message("_t value.humidity " + String(_t.humidity));
-  if (_t.humidity == NAN || String(_t.humidity) == "nan" || _t.humidity < 5) {
-    message("DHT [DHTesp::DHT22] failed. Value=" + String(_t.humidity));
-    message("Setting [AUTO_DETECT]");
-    dhtSensor.setup(pin, DHTesp::AUTO_DETECT);
+  if (dhtSensor.getStatus() != 0) {
+    message("DHT AM2302 failed", CRITICAL);
+    message("DHT start DHT22 mode...");
+    dhtSensor.setup(pin, DHTesp::DHT22);   //
     delay(2000);
-    _t = read_dht(dhtSensor);
-    if (_t.humidity == NAN || String(_t.humidity) == "nan" ) {
-      message("DHT22 [DHTesp::DHT22] detect failed. Value:" + String(_t.humidity));
-      message("Setting [DHTesp::DHT11]");
-      dhtSensor.setup(pin, DHTesp::DHT11);
+    TempAndHumidity _t = read_dht(dhtSensor);
+    message("_t value.humidity " + String(_t.humidity));
+    if (_t.humidity == NAN || String(_t.humidity) == "nan" || _t.humidity < 5) {
+      message("DHT [DHTesp::DHT22] failed. Value=" + String(_t.humidity));
+      message("Setting [AUTO_DETECT]");
+      dhtSensor.setup(pin, DHTesp::AUTO_DETECT);
       delay(2000);
       _t = read_dht(dhtSensor);
       if (_t.humidity == NAN || String(_t.humidity) == "nan" ) {
-        message("DHT11 [DHTesp::DHT11] detect failed. Value:" + String(_t.humidity));
-        message("Setting [AUTO_DETECT]");
-        dhtSensor.setup(pin, DHTesp::AUTO_DETECT);
+        message("DHT22 [DHTesp::DHT22] detect failed. Value:" + String(_t.humidity));
+        message("Setting [DHTesp::DHT11]");
+        dhtSensor.setup(pin, DHTesp::DHT11);
         delay(2000);
-        if (dhtSensor.getStatus() != 0) {
-          message("DHT not defined", CRITICAL);
-          dhtSensor.setup(-1, DHTesp::AUTO_DETECT);
+        _t = read_dht(dhtSensor);
+        if (_t.humidity == NAN || String(_t.humidity) == "nan" ) {
+          message("DHT11 [DHTesp::DHT11] detect failed. Value:" + String(_t.humidity));
+          message("Setting [AUTO_DETECT]");
+          dhtSensor.setup(pin, DHTesp::AUTO_DETECT);
+          delay(2000);
+          if (dhtSensor.getStatus() != 0) {
+            message("DHT not defined", CRITICAL);
+            dhtSensor.setup(-1, DHTesp::AUTO_DETECT);
+          }
+        } else {
+          message("DHT11 success.", PASS);
         }
       } else {
-        message("DHT11 success.", PASS);
+        message("AUTO_DETECT success.", PASS);
       }
     } else {
-      message("AUTO_DETECT success.", PASS);
+      message("DHT DHT22 success.", PASS);
     }
-  } else {
-    message("DHT DHT22 success.", PASS);
   }
+
   message("DHT MODEL :" + dhtSerialNumber(dhtSensor), INFO);
   return dhtSensor;
 }
@@ -1011,7 +1020,7 @@ void close_all_services()
 
   message(" ----> WiFi disabled...", INFO);
 
-  yield();
+  //yield();
   message(" ----> Finished closing all network services <----", INFO);
 }
 
@@ -1040,8 +1049,9 @@ void start_thermal()
 */
 void update_time()
 {
-  noInterrupts();
   update_time_flag = true;
+  noInterrupts();
+  delay(100);
   if (timeClient.getEpochTime() < INCORRECT_EPOCH) {
     unsigned short counter_tmp = 0;
     while (timeClient.getEpochTime() < INCORRECT_EPOCH && counter_tmp < 10) {
@@ -1055,7 +1065,7 @@ void update_time()
 #ifdef ESP8266
         ESP.wdtFeed();
 #endif
-        yield();
+        //yield();
       } else {
         break;
       }
