@@ -49,7 +49,9 @@
 #include <Ticker.h>
 
 /*******************************************************************************************************/
-#define   VERSION                           0.38
+#define   VERSION                           0.44
+// 0.44 Production release, 2019.08.17_18:25
+// 0.42 Production release, 2019.08.17_14:55
 // 0.38 Production release, 2019.08.17_14:15
 // 0.37 Production release, 2019.08.16_15:55  Devide code to files, improve DHT detection
 // 0.36 Production release, 2019.08.15_13:30  Improve stability
@@ -58,7 +60,7 @@
 // 0.32 Production release, 2019.08.04_18:29
 
 // WiFi settings
-#define   WIFI_SSID                         "RadiationG"
+#define   WIFI_SSID                         "Radiation"
 #define   WIFI_PASS                         "polkalol"
 
 // NTP settings
@@ -636,17 +638,14 @@ String read_cmd(const String &postData)
   if ((CHECK_INTERNET_CONNECT && internet_access) || !CHECK_INTERNET_CONNECT) {
     String url = "plant/read_cmd/" + urlencode(getNodeName());
     String int_url = String(GROWBOOK_URL) + url;
-    message(int_url + " : \t" + String("postData:") + postData, DEBUG); // Print HTTP return code
+    message("READ_CMD:" + int_url + " : \t" + String("postData:") + postData, DEBUG); // Print HTTP return code
+#ifdef ESP8266
+    ESP.wdtFeed();
+#endif
     httpClient.begin(wifi_client, int_url);
-    httpClient.setTimeout(5000);
+    httpClient.setTimeout(2000);
     httpClient.addHeader("Content-Type", "application/x-www-form-urlencoded");  //Specify content-type header
-#ifdef ESP8266
-    ESP.wdtFeed();
-#endif
     int httpCode = httpClient.POST(postData); // Send the request
-#ifdef ESP8266
-    ESP.wdtFeed();
-#endif
     //  if ( httpCode == HTTP_CODE_OK) {
     if (httpCode < 0) {
       message(String(" !  -  Code:") + String(httpCode) + " " + String(" \t Message :") + httpClient.errorToString(httpCode) , DEBUG);
@@ -655,9 +654,6 @@ String read_cmd(const String &postData)
 
       if (httpCode == HTTP_CODE_FOUND || httpCode == HTTP_CODE_OK) {
         ret = httpClient.getString(); // Get the response payload
-#ifdef ESP8266
-        ESP.wdtFeed();
-#endif
         //message(String(" +  Code:") + String(httpCode) + " PayLoad:" + String(payload), INFO);    //Print request response payload
       } else {
         message(String(" -  Code:") + String(httpCode));// + " PayLoad:" + String(payload), DEBUG);    //Print request response payload
@@ -676,22 +672,18 @@ const bool postTo(const String &url, const String &postData)
   bool ret = false;
   if ((CHECK_INTERNET_CONNECT && internet_access) || !CHECK_INTERNET_CONNECT) {
     String int_url = String(GROWBOOK_URL) + url;
+    message("POST_TO:" + int_url + " : \t" + String("postData:") + postData, DEBUG); // Print HTTP return code
+#ifdef ESP8266
+    ESP.wdtFeed();
+#endif
     httpClient.begin(wifi_client, int_url);
-    httpClient.setTimeout(5000);
+    httpClient.setTimeout(2000);
     httpClient.addHeader("Content-Type", "application/x-www-form-urlencoded");  //Specify content-type header
-    message(int_url + " : \t" + String("postData:") + postData, DEBUG); // Print HTTP return code
-#ifdef ESP8266
-    ESP.wdtFeed();
-#endif
-    int httpCode = httpClient.POST(postData); // Send the request
-#ifdef ESP8266
-    ESP.wdtFeed();
-#endif
-    //  if ( httpCode == HTTP_CODE_OK) {
+    short int httpCode = httpClient.POST(postData); // Send the request
+    httpClient.end();
     if (httpCode < 0) {
       message(String(" !  -  Code:") + String(httpCode) + " " + String(" \t Message :") + httpClient.errorToString(httpCode) , DEBUG);
-    }
-    else {
+    } else {
       //String payload = httpClient.getString(); // Get the response payload
       if (httpCode == HTTP_CODE_FOUND || httpCode == HTTP_CODE_OK) {
         ret = true;
@@ -700,7 +692,7 @@ const bool postTo(const String &url, const String &postData)
         message(String(" -  Code:") + String(httpCode));// + " PayLoad:" + String(payload), DEBUG);    //Print request response payload
       }
     }
-    httpClient.end();
+
   } else {
     message("No internet access", DEBUG);
     delay(20);
