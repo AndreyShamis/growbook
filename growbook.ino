@@ -782,54 +782,59 @@ const String dhtSerialNumber(DHTesp &dhtSensor)
   return String("DHT") + String(dhtSensor.getModel()) + String(dhtSensor.getModel()) + "_-_" + getNodeName() + String("_-_") + String(dhtSensor.getPin());
 }
 
+bool validateDhtSensor(DHTesp &dhtSensor, const DHTesp::DHT_MODEL_t &model, const unsigned int pin, unsigned short int delayBefore)
+{
+  dhtSensor.setup(pin, model);   //
+  delay(delayBefore);
+  TempAndHumidity _t = read_dht(dhtSensor);
+
+  if (dhtSensor.getStatus() == 0 && !(String(_t.humidity) == "nan" || _t.humidity < 5)) {
+    return true;
+  }
+  return false;
+}
+
 DHTesp startSensor(DHTesp &dhtSensor, const unsigned int pin)
 {
+  bool success = false;
   message(" - - - - Starting DHT detection - - - - ");
-
   message("DHT start AM2302 mode...");
-  dhtSensor.setup(pin, DHTesp::AM2302);   //
-  delay(2000);
-  TempAndHumidity _t = read_dht(dhtSensor);
-  if (dhtSensor.getStatus() != 0) {
+  if (!validateDhtSensor(dhtSensor, DHTesp::AM2302, pin, 2000)) {
     message("DHT AM2302 failed", CRITICAL);
+
     message("DHT start DHT22 mode...");
-    dhtSensor.setup(pin, DHTesp::DHT22);   //
-    delay(2000);
-    TempAndHumidity _t = read_dht(dhtSensor);
-    message("_t value.humidity " + String(_t.humidity));
-    if (_t.humidity == NAN || String(_t.humidity) == "nan" || _t.humidity < 5) {
-      message("DHT [DHTesp::DHT22] failed. Value=" + String(_t.humidity));
+    if (!validateDhtSensor(dhtSensor, DHTesp::DHT22, pin, 2000)) {
+      message("DHT [DHTesp::DHT22] failed");
+
       message("Setting [AUTO_DETECT]");
-      dhtSensor.setup(pin, DHTesp::AUTO_DETECT);
-      delay(2000);
-      _t = read_dht(dhtSensor);
-      if (_t.humidity == NAN || String(_t.humidity) == "nan" ) {
-        message("DHT22 [DHTesp::DHT22] detect failed. Value:" + String(_t.humidity));
+      if (!validateDhtSensor(dhtSensor, DHTesp::AUTO_DETECT, pin, 2000)) {
+        message("DHT22 [DHTesp::DHT22] detect failed");
+
         message("Setting [DHTesp::DHT11]");
-        dhtSensor.setup(pin, DHTesp::DHT11);
-        delay(2000);
-        _t = read_dht(dhtSensor);
-        if (_t.humidity == NAN || String(_t.humidity) == "nan" ) {
-          message("DHT11 [DHTesp::DHT11] detect failed. Value:" + String(_t.humidity));
+        if (!validateDhtSensor(dhtSensor, DHTesp::DHT11, pin, 2000)) {
+          message("DHT11 [DHTesp::DHT11] detect failed");
+
           message("Setting [AUTO_DETECT]");
-          dhtSensor.setup(pin, DHTesp::AUTO_DETECT);
-          delay(2000);
-          if (dhtSensor.getStatus() != 0) {
+          if (!validateDhtSensor(dhtSensor, DHTesp::AUTO_DETECT, pin, 2000)) {
             message("DHT not defined", CRITICAL);
             dhtSensor.setup(-1, DHTesp::AUTO_DETECT);
           }
         } else {
+          success = true;
           message("DHT11 success.", PASS);
         }
       } else {
+        success = true;
         message("AUTO_DETECT success.", PASS);
       }
     } else {
+      success = true;
       message("DHT DHT22 success.", PASS);
     }
   }
-
-  message("DHT MODEL :" + dhtSerialNumber(dhtSensor), INFO);
+  if (success) {
+    message("DHT MODEL :" + dhtSerialNumber(dhtSensor), INFO);
+  }
   return dhtSensor;
 }
 
