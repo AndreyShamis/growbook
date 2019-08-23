@@ -190,15 +190,16 @@ volatile bool                   firmwareUpdateFlag = false;
 void setup(void)
 {
   pinMode(LIGHT_SENSOR_D0, INPUT);
-  sensor.begin();
   Serial.begin(UART_BAUD_RATE);
+  Serial.println("");
   if (CHECK_INTERNET_CONNECT) {
     internet_access = 0;
   } else {
     internet_access = 1;
   }
-  Serial.println("");
   wifi_connect();
+  oneWire.write(0x44);
+  sensor.begin();
   message("Serial communication started.", PASS);
   print_reset_info();
   message("Starting SPIFFS....", INFO);
